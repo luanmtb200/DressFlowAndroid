@@ -1,0 +1,13 @@
+-keep class com.mrjack.dressflow.data.model.** { *; }
+-keep class retrofit2.** { *; }
+-keep interface com.mrjack.dressflow.data.api.ApiService { *; }
+-keep class * extends androidx.lifecycle.AndroidViewModel { <init>(android.app.Application); }
+-keep class * extends androidx.lifecycle.ViewModel { <init>(); }
+-keepattributes Signature
+-keepattributes *Annotation*
+-dontwarn okhttp3.**
+-dontwarn okio.**
+-keep class io.socket.** { *; }
+-keep class io.engine.io.** { *; }
+-dontwarn io.socket.**
+-dontwarn io.engine.io.**
