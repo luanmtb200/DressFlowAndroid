@@ -151,6 +151,16 @@ data class Padronizacao(
     val createdAt: String? = null,
 )
 
+data class Traje(
+    val id: Int,
+    val nome: String,
+    val codigo: String,
+    val tipo: String,
+    val imagemUrl: String? = null,
+    val valorAluguel: String? = null,
+    val valorVenda: String? = null,
+)
+
 data class TrajePadInfo(
     val id: Int,
     val nome: String,
@@ -224,6 +234,15 @@ data class MuralMensagem(
     val urlArquivo: String?,
     val nomeArquivo: String?,
     val createdAt: String,
+)
+
+// ── Traje de Padronização ─────────────────────────────────────────────────────
+data class TrajePadronizacao(
+    val id: Int,
+    val nome: String,
+    val descricao: String? = null,
+    val imagemUrl: String? = null,
+    val valor: String? = null,
 )
 
 // ── WhatsApp ──────────────────────────────────────────────────────────────────

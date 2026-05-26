@@ -32,6 +32,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.data.api.NetworkModule
 import com.mrjack.dressflow.data.model.*
 import com.mrjack.dressflow.ui.theme.*
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -99,6 +101,15 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
     val clientesBusca   = MutableStateFlow<List<Cliente>>(emptyList())
     val buscandoCliente = MutableStateFlow(false)
     private var clienteJob: Job? = null
+
+    fun buscarVestido(codigo: String, onResult: (Traje?) -> Unit) {
+        viewModelScope.launch {
+            try {
+                val resp = api.buscarTrajePorCodigo(codigo)
+                onResult(if (resp.isSuccessful && resp.body()?.tipo == "VESTIDO") resp.body() else null)
+            } catch (_: Exception) { onResult(null) }
+        }
+    }
 
     fun buscarClientes(q: String) {
         clienteJob?.cancel()
@@ -326,7 +337,7 @@ fun VendasDiaTab(vm: VendasRelatorioViewModel) {
             confirmButton = {
                 TextButton(onClick = {
                     pickerStateDia.selectedDateMillis?.let { millis ->
-                        val cal = Calendar.getInstance(); cal.timeInMillis = millis
+                        val cal = Calendar.getInstance(java.util.TimeZone.getTimeZone("UTC")); cal.timeInMillis = millis
                         vm.setDataDia("%04d-%02d-%02d".format(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH)))
                     }
                     showPickerDia = false
@@ -963,9 +974,25 @@ fun LocacaoFormScreen(
             ) else LocacaoForm()
         )
     }
-    var clienteBusca     by remember { mutableStateOf("") }
-    var showClientes     by remember { mutableStateOf(false) }
-    var mostrarCompletar by remember { mutableStateOf(false) }
+    var clienteBusca      by remember { mutableStateOf("") }
+    var showClientes      by remember { mutableStateOf(false) }
+    var mostrarCompletar  by remember { mutableStateOf(false) }
+    var vestidoEncontrado by remember { mutableStateOf<com.mrjack.dressflow.data.model.Traje?>(null) }
+    var buscandoVestido   by remember { mutableStateOf(false) }
+
+    LaunchedEffect(form.traje, form.sexo) {
+        if (form.sexo == "F" && form.traje.length >= 2) {
+            delay(500)
+            buscandoVestido = true
+            vm.buscarVestido(form.traje.trim()) { t ->
+                vestidoEncontrado = t
+                buscandoVestido = false
+            }
+        } else {
+            vestidoEncontrado = null
+            buscandoVestido = false
+        }
+    }
     var clienteIdSalvo   by remember { mutableStateOf(0) }
     var clienteNomeSalvo by remember { mutableStateOf("") }
     var showPickerEvento by remember { mutableStateOf(false) }
@@ -1138,15 +1165,62 @@ fun LocacaoFormScreen(
                 }
             }
 
-            // ── Traje ─────────────────────────────────────────────────────────
-            Text("TRAJE", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+            // ── Traje / Vestido ────────────────────────────────────────────────
+            Text(if (form.sexo == "F") "VESTIDO" else "TRAJE", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                VField("Traje *", form.traje, { form = form.copy(traje = it) }, caps = KeyboardCapitalization.Sentences, modifier = Modifier.weight(1f))
+                VField(if (form.sexo == "F") "Código do vestido *" else "Traje *", form.traje, { form = form.copy(traje = it) }, caps = KeyboardCapitalization.Sentences, modifier = Modifier.weight(1f))
                 Column {
                     Text("Sexo", fontSize = 12.sp, color = Gray500)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         listOf("M" to "Masc", "F" to "Fem").forEach { (v, label) ->
                             FilterChip(selected = form.sexo == v, onClick = { form = form.copy(sexo = v) }, label = { Text(label, fontSize = 12.sp) })
+                        }
+                    }
+                }
+            }
+
+            // Card de vestido encontrado (somente feminino)
+            if (form.sexo == "F") {
+                if (buscandoVestido) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Blue600)
+                        Text("Buscando vestido...", fontSize = 12.sp, color = Gray500)
+                    }
+                } else if (vestidoEncontrado != null) {
+                    val v = vestidoEncontrado!!
+                    val preco = v.valorAluguel ?: v.valorVenda
+                    LaunchedEffect(v.codigo) {
+                        if (!preco.isNullOrBlank() && form.valor.isBlank()) {
+                            form = form.copy(valor = preco)
+                        }
+                    }
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = Color(0xFFF0F9FF),
+                        border = BorderStroke(1.dp, Blue200),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (!v.imagemUrl.isNullOrBlank()) {
+                                coil.compose.AsyncImage(
+                                    model = v.imagemUrl,
+                                    contentDescription = v.nome,
+                                    modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
+                                    contentScale = ContentScale.Crop,
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(v.nome, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF1E3A8A))
+                                Text(v.codigo, fontSize = 11.sp, color = Blue600)
+                                if (!preco.isNullOrBlank()) {
+                                    Text("R$ $preco", fontSize = 12.sp, color = Blue700, fontWeight = FontWeight.Medium)
+                                }
+                            }
+                            Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16A34A), modifier = Modifier.size(20.dp))
                         }
                     }
                 }

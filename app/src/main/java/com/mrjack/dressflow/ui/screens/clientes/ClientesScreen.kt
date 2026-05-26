@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -35,10 +36,14 @@ import com.mrjack.dressflow.ui.screens.vendas.brl
 import com.mrjack.dressflow.ui.screens.vendas.fmtDataCompleta
 import com.mrjack.dressflow.ui.screens.vendas.fmtDataSimples
 import com.mrjack.dressflow.ui.theme.*
+import com.mrjack.dressflow.data.api.dataStore
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 // ─── ViewModel ────────────────────────────────────────────────────────────────
@@ -123,12 +128,36 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
     fun abrirNovaLocacao()    { mostrandoNovaLocacao.value = true }
     fun fecharNovaLocacao()   { mostrandoNovaLocacao.value = false }
 
+    val vendedores         = MutableStateFlow<List<com.mrjack.dressflow.data.model.Vendedor>>(emptyList())
+    val currentVendedorId  = MutableStateFlow<Int?>(null)
+
+    init {
+        viewModelScope.launch {
+            try { vendedores.value = api.listarVendedores().body() ?: emptyList() } catch (_: Exception) {}
+        }
+        viewModelScope.launch {
+            try {
+                app.dataStore.data.collect { prefs ->
+                    val json = prefs[com.mrjack.dressflow.data.api.PrefsKeys.USER_JSON]
+                    if (json != null) {
+                        val u = com.google.gson.Gson().fromJson(json, com.mrjack.dressflow.data.model.UsuarioLogado::class.java)
+                        currentVendedorId.value = u?.vendedorId
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     fun criarAtendimento(
         nome: String,
         telefone: String,
+        cpf: String,
         tipoCliente: String,
         dataNascimento: String,
         referencia: String,
+        cep: String,
+        endereco: String,
+        vendedorId: Int?,
         evento: String,
         dataEvento: String,
     ) {
@@ -139,9 +168,13 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
                 val body = mutableMapOf<String, Any?>(
                     "nome"           to nome,
                     "telefone"       to telefone.ifBlank { null },
+                    "cpf"            to cpf.replace(Regex("[^0-9]"), "").ifBlank { null },
                     "tipoCliente"    to tipoCliente.ifBlank { null },
                     "dataNascimento" to dataNascimento.ifBlank { null },
                     "referencia"     to referencia.ifBlank { null },
+                    "cep"            to cep.replace(Regex("[^0-9]"), "").ifBlank { null },
+                    "endereco"       to endereco.ifBlank { null },
+                    "vendedorId"     to vendedorId,
                 )
                 val resp = api.criarCliente(body)
                 if (resp.isSuccessful) {
@@ -747,33 +780,104 @@ fun HistoricoRow(l: Locacao) {
 
 // ─── Novo Atendimento (idêntico ao web) ──────────────────────────────────────
 
+fun maskTelefone(raw: String): String {
+    val d = raw.replace(Regex("[^0-9]"), "").take(11)
+    return when {
+        d.length <= 2  -> d
+        d.length <= 6  -> "(${d.take(2)}) ${d.drop(2)}"
+        d.length <= 10 -> "(${d.take(2)}) ${d.drop(2).take(4)}-${d.drop(6)}"
+        else           -> "(${d.take(2)}) ${d.drop(2).take(5)}-${d.drop(7)}"
+    }
+}
+
+fun maskCpf(raw: String): String {
+    val d = raw.replace(Regex("[^0-9]"), "").take(11)
+    return when {
+        d.length <= 3  -> d
+        d.length <= 6  -> "${d.take(3)}.${d.drop(3)}"
+        d.length <= 9  -> "${d.take(3)}.${d.drop(3).take(3)}.${d.drop(6)}"
+        else           -> "${d.take(3)}.${d.drop(3).take(3)}.${d.drop(6).take(3)}-${d.drop(9)}"
+    }
+}
+
+fun maskCep(raw: String): String {
+    val d = raw.replace(Regex("[^0-9]"), "").take(8)
+    return if (d.length <= 5) d else "${d.take(5)}-${d.drop(5)}"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NovoAtendimentoScreen(vm: ClientesViewModel) {
-    val isSaving by vm.isSaving.collectAsState()
-    val erro     by vm.erro.collectAsState()
+    val isSaving          by vm.isSaving.collectAsState()
+    val erro              by vm.erro.collectAsState()
+    val vendedores        by vm.vendedores.collectAsState()
+    val currentVendedorId by vm.currentVendedorId.collectAsState()
 
-    var nome         by remember { mutableStateOf("") }
-    var telefone     by remember { mutableStateOf("") }
-    var tipoCliente  by remember { mutableStateOf("") }
-    var dataNasc     by remember { mutableStateOf("") }
-    var referencia   by remember { mutableStateOf("") }
-    var evento       by remember { mutableStateOf("") }
-    var dataEvento   by remember { mutableStateOf("") }
-    var tipoExpanded by remember { mutableStateOf(false) }
+    var nome            by remember { mutableStateOf("") }
+    var telefone        by remember { mutableStateOf("") }
+    var cpf             by remember { mutableStateOf("") }
+    var tipoCliente     by remember { mutableStateOf("") }
+    var dataNasc        by remember { mutableStateOf("") }
+    var referencia      by remember { mutableStateOf("") }
+    var cep             by remember { mutableStateOf("") }
+    var rua             by remember { mutableStateOf("") }
+    var numero          by remember { mutableStateOf("") }
+    var bairro          by remember { mutableStateOf("") }
+    var cidade          by remember { mutableStateOf("") }
+    var vendedorId      by remember { mutableStateOf<Int?>(null) }
+    var evento          by remember { mutableStateOf("") }
+    var dataEvento      by remember { mutableStateOf("") }
+    var tipoExpanded    by remember { mutableStateOf(false) }
+    var vendedorExpanded by remember { mutableStateOf(false) }
+    var cepLoading      by remember { mutableStateOf(false) }
+
+    val scope = rememberCoroutineScope()
+
+    // Pré-seleciona vendedor do usuário logado quando carregado
+    LaunchedEffect(currentVendedorId) {
+        if (vendedorId == null && currentVendedorId != null) {
+            vendedorId = currentVendedorId
+        }
+    }
+
+    fun buscarCep(cepDigits: String) {
+        scope.launch {
+            cepLoading = true
+            try {
+                val resp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    java.net.URL("https://viacep.com.br/ws/$cepDigits/json/").readText()
+                }
+                val json = com.google.gson.JsonParser.parseString(resp).asJsonObject
+                if (!json.has("erro")) {
+                    rua    = json.get("logradouro")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                    bairro = json.get("bairro")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                    val loc = json.get("localidade")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                    val uf  = json.get("uf")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                    cidade = if (loc.isNotBlank() && uf.isNotBlank()) "$loc - $uf" else loc
+                }
+            } catch (_: Exception) {}
+            cepLoading = false
+        }
+    }
 
     val tipos = listOf(
         "" to "— Selecionar —",
-        "NOIVO" to "Noivo", "PADRINHO" to "Padrinho", "FORMANDO" to "Formando",
-        "PAI" to "Pai", "DEBUTANTE" to "Debutante", "SOCIAL" to "Social", "OUTRO" to "Outro",
+        "NOIVO" to "Noivo", "NOIVA" to "Noiva",
+        "PADRINHO" to "Padrinho", "MADRINHA" to "Madrinha",
+        "PAGEM" to "Pagem",
+        "FORMANDO" to "Formando", "FORMANDA" to "Formanda",
+        "PAI_FORMANDO" to "Pai do Formando", "MAE_FORMANDA" to "Mãe da Formanda",
+        "DEBUTANTE" to "Debutante", "PRINCIPE_DEBUTANTE" to "Príncipe Debutante",
+        "PAI_DEBUTANTE" to "Pai da Debutante", "MAE_DEBUTANTE" to "Mãe da Debutante",
+        "OUTROS" to "Outros",
     )
+
+    fun buildEndereco() = listOf(rua, numero, bairro, cidade).filter { it.isNotBlank() }.joinToString(", ")
 
     Column(Modifier.fillMaxSize()) {
         Surface(shadowElevation = 2.dp, color = Color.White) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { vm.fecharForm() }) {
-                    Icon(Icons.Default.ArrowBack, null, tint = Blue600)
-                }
+                IconButton(onClick = { vm.fecharForm() }) { Icon(Icons.Default.ArrowBack, null, tint = Blue600) }
                 Text("← Voltar", fontSize = 13.sp, color = Blue600, modifier = Modifier.clickable { vm.fecharForm() })
             }
         }
@@ -794,49 +898,48 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                 Spacer(Modifier.height(16.dp))
             }
 
-            // Card principal
             Surface(color = Color.White, shape = RoundedCornerShape(12.dp), shadowElevation = 2.dp) {
                 Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    // Nome completo
+
+                    // Nome
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Nome completo *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                        OutlinedTextField(
-                            value = nome,
-                            onValueChange = { nome = it },
+                        OutlinedTextField(value = nome, onValueChange = { nome = it },
                             placeholder = { Text("Ex: João da Silva", color = Gray500) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(8.dp),
-                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
-                        )
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
                     }
 
-                    // Telefone
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("Telefone *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                        OutlinedTextField(
-                            value = telefone,
-                            onValueChange = { telefone = it },
-                            placeholder = { Text("(11) 99999-9999", color = Gray500) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(8.dp),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next),
-                        )
+                    // Telefone + CPF
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Telefone *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                            OutlinedTextField(value = telefone,
+                                onValueChange = { telefone = maskTelefone(it) },
+                                placeholder = { Text("(11) 99999-9999", color = Gray500) },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next))
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("CPF", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                            OutlinedTextField(value = cpf,
+                                onValueChange = { cpf = maskCpf(it) },
+                                placeholder = { Text("000.000.000-00", color = Gray500) },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
+                        }
                     }
 
-                    // Tipo de cliente + Data de nascimento
+                    // Tipo + Nascimento
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Tipo de cliente", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
                             ExposedDropdownMenuBox(expanded = tipoExpanded, onExpandedChange = { tipoExpanded = it }) {
                                 OutlinedTextField(
                                     value = tipos.find { it.first == tipoCliente }?.second ?: "— Selecionar —",
-                                    onValueChange = {},
-                                    readOnly = true,
+                                    onValueChange = {}, readOnly = true,
                                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(tipoExpanded) },
-                                    modifier = Modifier.fillMaxWidth().menuAnchor(),
-                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.fillMaxWidth().menuAnchor(), shape = RoundedCornerShape(8.dp),
                                 )
                                 ExposedDropdownMenu(expanded = tipoExpanded, onDismissRequest = { tipoExpanded = false }) {
                                     tipos.forEach { (v, label) ->
@@ -845,52 +948,104 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                                 }
                             }
                         }
-                        DatePickerField(
-                            label = "Data de nascimento",
-                            value = dataNasc,
-                            onDateSelected = { dataNasc = it },
-                            modifier = Modifier.weight(1f),
-                        )
+                        DatePickerField(label = "Data de nascimento", value = dataNasc, onDateSelected = { dataNasc = it }, modifier = Modifier.weight(1f))
                     }
 
                     // Referência
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text("Referência", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                        OutlinedTextField(
-                            value = referencia,
-                            onValueChange = { referencia = it },
-                            placeholder = { Text("Ex: Padrinho do noivo João, Mãe da debutante Ana", color = Gray500) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true,
-                            shape = RoundedCornerShape(8.dp),
-                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
-                        )
+                        OutlinedTextField(value = referencia, onValueChange = { referencia = it },
+                            placeholder = { Text("Ex: Padrinho do noivo João", color = Gray500) },
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next))
                     }
 
                     HorizontalDivider(color = Gray200)
+                    Text("ENDEREÇO", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Blue600, letterSpacing = 1.sp)
 
-                    // Dados do evento
+                    // CEP
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("CEP", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            OutlinedTextField(value = cep,
+                                onValueChange = { v ->
+                                    cep = maskCep(v)
+                                    val digits = cep.replace(Regex("[^0-9]"), "")
+                                    if (digits.length == 8) buscarCep(digits)
+                                },
+                                placeholder = { Text("00000-000", color = Gray500) },
+                                modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
+                            if (cepLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Blue600)
+                        }
+                    }
+
+                    // Rua + Número
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1.5f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Rua / Logradouro", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                            OutlinedTextField(value = rua, onValueChange = { rua = it },
+                                placeholder = { Text("Preenchido pelo CEP", color = Gray500) },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next))
+                        }
+                        Column(Modifier.weight(0.7f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Número", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                            OutlinedTextField(value = numero, onValueChange = { numero = it },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
+                        }
+                    }
+
+                    // Bairro + Cidade
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Bairro", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                            OutlinedTextField(value = bairro, onValueChange = { bairro = it },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
+                        }
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Cidade", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                            OutlinedTextField(value = cidade, onValueChange = { cidade = it },
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
+                        }
+                    }
+
+                    HorizontalDivider(color = Gray200)
                     Text("DADOS DO EVENTO", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Blue600, letterSpacing = 1.sp)
 
+                    // Vendedor
+                    if (vendedores.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Vendedor", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                            ExposedDropdownMenuBox(expanded = vendedorExpanded, onExpandedChange = { vendedorExpanded = it }) {
+                                OutlinedTextField(
+                                    value = vendedores.find { it.id == vendedorId }?.nome ?: "— Selecionar —",
+                                    onValueChange = {}, readOnly = true,
+                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(vendedorExpanded) },
+                                    modifier = Modifier.fillMaxWidth().menuAnchor(), shape = RoundedCornerShape(8.dp),
+                                )
+                                ExposedDropdownMenu(expanded = vendedorExpanded, onDismissRequest = { vendedorExpanded = false }) {
+                                    vendedores.filter { it.ativo }.forEach { v ->
+                                        DropdownMenuItem(text = { Text(v.nome) }, onClick = { vendedorId = v.id; vendedorExpanded = false })
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Evento + Data
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Evento *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(
-                                value = evento,
-                                onValueChange = { evento = it },
+                            OutlinedTextField(value = evento, onValueChange = { evento = it },
                                 placeholder = { Text("Ex: Casamento", color = Gray500) },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                                shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next),
-                            )
+                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next))
                         }
-                        DatePickerField(
-                            label = "Data do evento *",
-                            value = dataEvento,
-                            onDateSelected = { dataEvento = it },
-                            modifier = Modifier.weight(1f),
-                        )
+                        DatePickerField(label = "Data do evento *", value = dataEvento, onDateSelected = { dataEvento = it }, modifier = Modifier.weight(1f))
                     }
                 }
             }
@@ -906,7 +1061,7 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                             telefone.isBlank()   -> vm.erro.value = "Telefone obrigatório"
                             evento.isBlank()     -> vm.erro.value = "Informe o evento"
                             dataEvento.isBlank() -> vm.erro.value = "Informe a data do evento"
-                            else -> vm.criarAtendimento(nome, telefone, tipoCliente, dataNasc, referencia, evento, dataEvento)
+                            else -> vm.criarAtendimento(nome, telefone, cpf, tipoCliente, dataNasc, referencia, cep, buildEndereco(), vendedorId, evento, dataEvento)
                         }
                     },
                     enabled = !isSaving,
@@ -917,10 +1072,7 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                     if (isSaving) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                     else Text("Continuar para registro →", fontWeight = FontWeight.SemiBold)
                 }
-                OutlinedButton(
-                    onClick = { vm.fecharForm() },
-                    shape = RoundedCornerShape(8.dp),
-                ) { Text("Cancelar") }
+                OutlinedButton(onClick = { vm.fecharForm() }, shape = RoundedCornerShape(8.dp)) { Text("Cancelar") }
             }
         }
     }
@@ -942,12 +1094,19 @@ fun ClienteField(
 }
 
 fun tipoLabel(tipo: String?): String = when (tipo) {
-    "NOIVO"     -> "Noivo"
-    "PADRINHO"  -> "Padrinho"
-    "FORMANDO"  -> "Formando"
-    "PAI"       -> "Pai"
-    "DEBUTANTE" -> "Debutante"
-    "SOCIAL"    -> "Social"
-    "OUTRO"     -> "Outro"
-    else        -> tipo ?: "—"
+    "NOIVO"              -> "Noivo"
+    "NOIVA"              -> "Noiva"
+    "PADRINHO"           -> "Padrinho"
+    "MADRINHA"           -> "Madrinha"
+    "PAGEM"              -> "Pagem"
+    "FORMANDO"           -> "Formando"
+    "FORMANDA"           -> "Formanda"
+    "PAI_FORMANDO"       -> "Pai do Formando"
+    "MAE_FORMANDA"       -> "Mãe da Formanda"
+    "DEBUTANTE"          -> "Debutante"
+    "PRINCIPE_DEBUTANTE" -> "Príncipe Debutante"
+    "PAI_DEBUTANTE"      -> "Pai da Debutante"
+    "MAE_DEBUTANTE"      -> "Mãe da Debutante"
+    "OUTROS"             -> "Outros"
+    else                 -> tipo ?: "—"
 }

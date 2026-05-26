@@ -2,6 +2,7 @@ package com.mrjack.dressflow.ui.screens.whatsapp
 
 import android.app.Application
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,6 +13,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -22,18 +24,23 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.mrjack.dressflow.data.api.NetworkModule
 import com.mrjack.dressflow.data.model.EtiquetaWa
+import com.mrjack.dressflow.data.model.Vendedor
 import com.mrjack.dressflow.data.model.WaChat
 import com.mrjack.dressflow.data.model.WaLastMessage
 import com.mrjack.dressflow.data.model.WaMensagem
+import com.mrjack.dressflow.ui.components.DatePickerField
 import com.mrjack.dressflow.ui.theme.*
 import io.socket.client.IO
 import io.socket.client.Socket as IoSocket
@@ -94,6 +101,7 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
     val isSending      = MutableStateFlow(false)
     val erro           = MutableStateFlow<String?>(null)
     val fotoMap        = MutableStateFlow<Map<String, String?>>(emptyMap())
+    val vendedores     = MutableStateFlow<List<Vendedor>>(emptyList())
 
     private var buscaJob: Job? = null
     private var buscaAtual = ""
@@ -105,6 +113,7 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
             try { statusWa.value = api.statusWhatsApp().body()?.status ?: "UNKNOWN" } catch (_: Exception) {}
             carregarChats()
             carregarLabels()
+            try { vendedores.value = api.listarVendedores().body() ?: emptyList() } catch (_: Exception) {}
         }
     }
 
@@ -138,7 +147,8 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
         if (fotoMap.value.containsKey(chatId)) return
         viewModelScope.launch {
             try {
-                val url = api.fotoChat(chatId).body()?.url
+                val encoded = java.net.URLEncoder.encode(chatId, "UTF-8")
+                val url = api.fotoChat(encoded).body()?.url
                 fotoMap.value = fotoMap.value + (chatId to url)
             } catch (_: Exception) {
                 fotoMap.value = fotoMap.value + (chatId to null)
@@ -269,6 +279,29 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
                 mensagens.value = mensagens.value + fakeMsg
             } catch (e: Exception) { erro.value = e.message }
             finally { isSending.value = false }
+        }
+    }
+
+    fun criarAgendamento(
+        nomeCliente: String, telefone: String?, tipo: String, dataHora: String,
+        vendedorId: Int? = null, observacao: String? = null,
+        onSuccess: () -> Unit, onError: (String) -> Unit,
+    ) {
+        viewModelScope.launch {
+            try {
+                val body = mutableMapOf<String, Any?>(
+                    "nomeCliente" to nomeCliente,
+                    "tipo"        to tipo,
+                    "dataHora"    to dataHora,
+                    "status"      to "PENDENTE",
+                )
+                if (!telefone.isNullOrBlank()) body["telefone"] = telefone
+                if (vendedorId != null) body["vendedorId"] = vendedorId
+                if (!observacao.isNullOrBlank()) body["observacao"] = observacao
+                val resp = api.criarAgendamento(body)
+                if (resp.isSuccessful) onSuccess()
+                else onError("Erro ${resp.code()}")
+            } catch (e: Exception) { onError(e.message ?: "Erro") }
         }
     }
 
@@ -506,6 +539,7 @@ private fun labelMensagem(msg: WaLastMessage?): String {
 
 // ─── Tela de chat ─────────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
     val msgs         by vm.mensagens.collectAsState()
@@ -519,6 +553,7 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
     var texto        by remember { mutableStateOf("") }
     val listState    = rememberLazyListState()
     var quickReply   by remember { mutableStateOf("") }
+    var showAgendar  by remember { mutableStateOf(false) }
 
     LaunchedEffect(msgs.size) {
         if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1)
@@ -537,6 +572,10 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
             result.add(null to m)
         }
         result
+    }
+
+    if (showAgendar) {
+        AgendamentoDialog(chat = chat, vm = vm, onDismiss = { showAgendar = false })
     }
 
     Column(Modifier.fillMaxSize().background(Color(0xFFECE5DD))) {
@@ -573,6 +612,20 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (chat.telefoneExibir.isNotBlank()) {
                             Text(chat.telefoneExibir, fontSize = 11.sp, color = Color.White.copy(.8f))
+                        }
+                    }
+                    Surface(
+                        color = Color.White.copy(.2f),
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.clickable { showAgendar = true },
+                    ) {
+                        Row(
+                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(Icons.Default.DateRange, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                            Text("Agendar", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
                         }
                     }
                 }
@@ -612,7 +665,7 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 contentPadding = PaddingValues(vertical = 10.dp),
             ) {
-                items(grupos, key = { if (it.first != null) "sep-${it.second.timestamp}" else it.second.id }) { (isSep, msg) ->
+                items(grupos, key = { it.second.id }) { (isSep, msg) ->
                     if (isSep != null) {
                         // Separador de data
                         Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
@@ -731,6 +784,209 @@ fun WaBubble(msg: WaMensagem) {
                     Text(fmtTs(msg.timestamp), fontSize = 10.sp, color = Gray500)
                     if (msg.fromMe) {
                         Icon(Icons.Default.DoneAll, null, tint = Color(0xFF34B7F1), modifier = Modifier.size(13.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Agendamento Dialog ───────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AgendamentoDialog(chat: WaChat, vm: WhatsAppViewModel, onDismiss: () -> Unit) {
+    val vendedores by vm.vendedores.collectAsState()
+
+    val telRaw = remember(chat) {
+        val raw = chat.id.replace(Regex("@.*"), "").removePrefix("55")
+        raw.take(11)
+    }
+
+    var nomeCliente  by remember { mutableStateOf(chat.nomeExibir) }
+    var telefone     by remember { mutableStateOf(telRaw) }
+    var tipo         by remember { mutableStateOf("ATENDIMENTO") }
+    var dataSel      by remember { mutableStateOf("") }
+    var horaSel      by remember { mutableStateOf("") }
+    var vendedorId   by remember { mutableStateOf<Int?>(null) }
+    var observacao   by remember { mutableStateOf("") }
+    var salvando     by remember { mutableStateOf(false) }
+    var ok           by remember { mutableStateOf(false) }
+    var erro         by remember { mutableStateOf<String?>(null) }
+    var tipoExpand   by remember { mutableStateOf(false) }
+    var vendExpand   by remember { mutableStateOf(false) }
+
+    val slots = remember(dataSel) {
+        if (dataSel.isEmpty()) return@remember emptyList()
+        try {
+            val parts = dataSel.split("-")
+            val cal = Calendar.getInstance()
+            cal.set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt(), 12, 0, 0)
+            when (cal.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY,
+                Calendar.THURSDAY, Calendar.FRIDAY ->
+                    listOf("09:00","10:00","11:00","12:00","13:00","14:00","15:00","16:00","17:00","18:00")
+                Calendar.SATURDAY ->
+                    listOf("08:00","09:00","10:00","11:00","12:00")
+                else -> emptyList()
+            }
+        } catch (_: Exception) { emptyList() }
+    }
+
+    LaunchedEffect(slots) { if (horaSel !in slots) horaSel = "" }
+
+    val tiposAg = listOf(
+        "ATENDIMENTO" to "Atendimento",
+        "PROVA"       to "Prova",
+        "PRIMEIRA_PROVA_VESTIDO" to "1ª Prova Vestido",
+        "RETIRADA_VESTIDO"       to "Retirada Vestido",
+        "OUTRO"       to "Outro",
+    )
+    val tipoLabel = tiposAg.find { it.first == tipo }?.second ?: tipo
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = Color.White,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Text("Novo Agendamento", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF1F2937))
+
+                if (ok) {
+                    Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
+                        Text("✓ Agendamento salvo!", color = Color(0xFF16A34A), fontWeight = FontWeight.SemiBold, fontSize = 16.sp)
+                    }
+                } else {
+                    OutlinedTextField(
+                        value = nomeCliente, onValueChange = { nomeCliente = it },
+                        label = { Text("Nome do cliente *") }, modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp), singleLine = true,
+                    )
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = telefone, onValueChange = { telefone = it },
+                            label = { Text("Telefone") }, modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(10.dp), singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                        )
+                        ExposedDropdownMenuBox(
+                            expanded = tipoExpand, onExpandedChange = { tipoExpand = it },
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            OutlinedTextField(
+                                value = tipoLabel, onValueChange = {}, readOnly = true,
+                                label = { Text("Tipo") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(tipoExpand) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp), singleLine = true,
+                            )
+                            ExposedDropdownMenu(expanded = tipoExpand, onDismissRequest = { tipoExpand = false }) {
+                                tiposAg.forEach { (v, l) ->
+                                    DropdownMenuItem(text = { Text(l) }, onClick = { tipo = v; tipoExpand = false })
+                                }
+                            }
+                        }
+                    }
+
+                    DatePickerField(
+                        label = "Data *", value = dataSel,
+                        onDateSelected = { dataSel = it }, modifier = Modifier.fillMaxWidth(),
+                    )
+
+                    if (dataSel.isNotEmpty()) {
+                        if (slots.isEmpty()) {
+                            Text("Sem horários disponíveis (Domingo)", fontSize = 12.sp, color = Color(0xFFEF4444))
+                        } else {
+                            Text("Horário *", fontSize = 12.sp, color = Color(0xFF64748B), fontWeight = FontWeight.Medium)
+                            Row(
+                                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                slots.forEach { h ->
+                                    val sel = horaSel == h
+                                    Surface(
+                                        color = if (sel) Color(0xFF128C7E) else Color.White,
+                                        shape = RoundedCornerShape(8.dp),
+                                        border = BorderStroke(1.dp, if (sel) Color(0xFF128C7E) else Color(0xFFD1D5DB)),
+                                        modifier = Modifier.clickable { horaSel = h },
+                                    ) {
+                                        Text(
+                                            h, fontSize = 12.sp,
+                                            color = if (sel) Color.White else Color(0xFF374151),
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    if (vendedores.isNotEmpty()) {
+                        val vendNome = vendedores.find { it.id == vendedorId }?.nome ?: ""
+                        ExposedDropdownMenuBox(expanded = vendExpand, onExpandedChange = { vendExpand = it }) {
+                            OutlinedTextField(
+                                value = vendNome, onValueChange = {}, readOnly = true,
+                                label = { Text("Vendedor") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(vendExpand) },
+                                modifier = Modifier.menuAnchor().fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp), singleLine = true,
+                            )
+                            ExposedDropdownMenu(expanded = vendExpand, onDismissRequest = { vendExpand = false }) {
+                                DropdownMenuItem(text = { Text("Sem vendedor") }, onClick = { vendedorId = null; vendExpand = false })
+                                vendedores.filter { it.ativo }.forEach { v ->
+                                    DropdownMenuItem(text = { Text(v.nome) }, onClick = { vendedorId = v.id; vendExpand = false })
+                                }
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = observacao, onValueChange = { observacao = it },
+                        label = { Text("Observação") }, modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(10.dp), maxLines = 3,
+                    )
+
+                    if (erro != null) {
+                        Text(erro!!, color = Color(0xFFEF4444), fontSize = 12.sp)
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Button(
+                            onClick = {
+                                if (nomeCliente.isBlank() || dataSel.isBlank() || horaSel.isBlank()) {
+                                    erro = "Preencha nome, data e horário"
+                                    return@Button
+                                }
+                                salvando = true; erro = null
+                                vm.criarAgendamento(
+                                    nomeCliente = nomeCliente,
+                                    telefone    = telefone.filter { it.isDigit() }.ifBlank { null },
+                                    tipo        = tipo,
+                                    dataHora    = "${dataSel}T${horaSel}:00",
+                                    vendedorId  = vendedorId,
+                                    observacao  = observacao.ifBlank { null },
+                                    onSuccess   = { ok = true; salvando = false },
+                                    onError     = { msg -> erro = msg; salvando = false },
+                                )
+                            },
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            enabled = !salvando,
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF128C7E)),
+                            shape = RoundedCornerShape(10.dp),
+                        ) {
+                            if (salvando) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                            else Text("Salvar")
+                        }
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            modifier = Modifier.weight(1f).height(44.dp),
+                            shape = RoundedCornerShape(10.dp),
+                        ) { Text("Cancelar") }
                     }
                 }
             }

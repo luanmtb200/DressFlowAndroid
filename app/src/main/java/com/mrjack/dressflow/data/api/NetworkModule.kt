@@ -49,8 +49,8 @@ class AuthInterceptor(private val context: Context) : Interceptor {
             .build()
         val response = chain.proceed(request)
 
-        // Se 401, token expirado — limpa o token para forçar re-login
-        if (response.code == 401) {
+        // Só notifica expiração se havia token — evita disparar no login com senha errada
+        if (response.code == 401 && token != null) {
             sp.edit().remove(PrefsKeys.SP_TOKEN).apply()
             TokenExpiredNotifier.notifyExpired()
         }

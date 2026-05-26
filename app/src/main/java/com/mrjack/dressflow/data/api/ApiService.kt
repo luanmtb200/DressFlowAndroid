@@ -42,22 +42,22 @@ interface ApiService {
     ): Response<List<Locacao>>
 
     @POST("locacoes")
-    suspend fun criarLocacao(@Body body: Map<String, Any?>): Response<Locacao>
+    suspend fun criarLocacao(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Locacao>
 
     @PUT("locacoes/{id}")
-    suspend fun atualizarLocacao(@Path("id") id: Int, @Body body: Map<String, Any?>): Response<Locacao>
+    suspend fun atualizarLocacao(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Locacao>
 
     @PATCH("locacoes/{id}/converter")
     suspend fun converterOrcamento(@Path("id") id: Int): Response<Locacao>
 
     @PATCH("locacoes/{id}/anotacoes")
-    suspend fun atualizarAnotacoes(@Path("id") id: Int, @Body body: Map<String, String?>): Response<Locacao>
+    suspend fun atualizarAnotacoes(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards String?>): Response<Locacao>
 
     @PATCH("locacoes/{id}/devolver")
-    suspend fun devolver(@Path("id") id: Int, @Body body: Map<String, Any?>): Response<Locacao>
+    suspend fun devolver(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Locacao>
 
     @PATCH("locacoes/{id}/solicitar-cancelamento")
-    suspend fun solicitarCancelamento(@Path("id") id: Int, @Body body: Map<String, String?>): Response<Locacao>
+    suspend fun solicitarCancelamento(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards String?>): Response<Locacao>
 
     // ── Clientes ──────────────────────────────────────────────────────────────
     @GET("clientes")
@@ -71,10 +71,10 @@ interface ApiService {
     suspend fun buscarCliente(@Path("id") id: Int): Response<Cliente>
 
     @POST("clientes")
-    suspend fun criarCliente(@Body body: Map<String, Any?>): Response<Cliente>
+    suspend fun criarCliente(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Cliente>
 
     @PUT("clientes/{id}")
-    suspend fun atualizarCliente(@Path("id") id: Int, @Body body: Map<String, Any?>): Response<Cliente>
+    suspend fun atualizarCliente(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Cliente>
 
     // ── Agendamentos ─────────────────────────────────────────────────────────
     @GET("agendamentos")
@@ -84,10 +84,10 @@ interface ApiService {
     ): Response<List<Agendamento>>
 
     @POST("agendamentos")
-    suspend fun criarAgendamento(@Body body: Map<String, Any?>): Response<Agendamento>
+    suspend fun criarAgendamento(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Agendamento>
 
     @PATCH("agendamentos/{id}")
-    suspend fun atualizarAgendamento(@Path("id") id: Int, @Body body: Map<String, Any?>): Response<Agendamento>
+    suspend fun atualizarAgendamento(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Agendamento>
 
     @DELETE("agendamentos/{id}")
     suspend fun deletarAgendamento(@Path("id") id: Int): Response<Unit>
@@ -103,13 +103,30 @@ interface ApiService {
     suspend fun buscarPadronizacao(@Path("id") id: Int): Response<Padronizacao>
 
     @POST("padronizacoes")
-    suspend fun criarPadronizacao(@Body body: Map<String, Any?>): Response<Padronizacao>
+    suspend fun criarPadronizacao(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Padronizacao>
 
     @PATCH("padronizacoes/{id}")
-    suspend fun atualizarPadronizacao(@Path("id") id: Int, @Body body: Map<String, Any?>): Response<Padronizacao>
+    suspend fun atualizarPadronizacao(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Padronizacao>
 
     @GET("padronizacoes/{id}/pdf")
     suspend fun baixarPdfPadronizacao(@Path("id") id: Int): Response<okhttp3.ResponseBody>
+
+    // ── Trajes ────────────────────────────────────────────────────────────────
+    @GET("trajes/buscar/{codigo}")
+    suspend fun buscarTrajePorCodigo(@Path("codigo") codigo: String): Response<Traje>
+
+    // ── Trajes de Padronização ────────────────────────────────────────────────
+    @GET("trajes-padronizacao")
+    suspend fun listarTrajesPadronizacao(): Response<List<TrajePadronizacao>>
+
+    @POST("trajes-padronizacao")
+    suspend fun criarTrajePadronizacao(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<TrajePadronizacao>
+
+    @PATCH("trajes-padronizacao/{id}")
+    suspend fun atualizarTrajePadronizacao(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<TrajePadronizacao>
+
+    @DELETE("trajes-padronizacao/{id}")
+    suspend fun deletarTrajePadronizacao(@Path("id") id: Int): Response<Unit>
 
     // ── Mural ─────────────────────────────────────────────────────────────────
     @GET("mural/canais")
