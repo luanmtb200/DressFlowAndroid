@@ -96,6 +96,16 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun carregarHistorico(clienteId: Int) {
+        viewModelScope.launch {
+            isLoadingHist.value = true
+            historico.value = try {
+                api.locacoesPorCliente(clienteId).body() ?: emptyList()
+            } catch (_: Exception) { emptyList() }
+            isLoadingHist.value = false
+        }
+    }
+
     fun carregarDevolucoes() {
         viewModelScope.launch {
             isLoadingDev.value = true
@@ -641,9 +651,23 @@ private fun ModalInfoRow(label: String, valor: String) {
 // ─── Detalhe do cliente ───────────────────────────────────────────────────────
 
 @Composable
-fun ClienteDetalheScreen(vm: ClientesViewModel, c: Cliente) {
+fun ClienteDetalheScreen(vm: ClientesViewModel, c: Cliente, vendasVm: VendasViewModel = viewModel()) {
     val historico     by vm.historico.collectAsState()
     val isLoadingHist by vm.isLoadingHist.collectAsState()
+    var locacaoParaEditar by remember { mutableStateOf<Locacao?>(null) }
+
+    if (locacaoParaEditar != null) {
+        LocacaoFormScreen(
+            vm = vendasVm,
+            clienteIdFixo = 0,
+            locacaoExistente = locacaoParaEditar,
+            onFechar = {
+                locacaoParaEditar = null
+                vm.carregarHistorico(c.id)
+            },
+        )
+        return
+    }
 
     Column(Modifier.fillMaxSize()) {
         Surface(shadowElevation = 2.dp, color = Color.White) {
@@ -720,7 +744,7 @@ fun ClienteDetalheScreen(vm: ClientesViewModel, c: Cliente) {
                     Text("Nenhuma visita registrada", color = Gray500)
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        items(historico, key = { it.id }) { l -> HistoricoRow(l) }
+                        items(historico, key = { it.id }) { l -> HistoricoRow(l, onEditar = { locacaoParaEditar = l }) }
                     }
                 }
             }
@@ -738,7 +762,7 @@ fun ClienteInfoItem(label: String, valor: String?) {
 }
 
 @Composable
-fun HistoricoRow(l: Locacao) {
+fun HistoricoRow(l: Locacao, onEditar: (() -> Unit)? = null) {
     val (tipoCor, tipoLabel) = when (l.tipo) {
         "LOCACAO"   -> Blue600 to "Locação"
         "ORCAMENTO" -> Amber500 to "Orçamento"
@@ -749,30 +773,44 @@ fun HistoricoRow(l: Locacao) {
         colors = CardDefaults.cardColors(containerColor = Color.White),
         elevation = CardDefaults.cardElevation(1.dp),
     ) {
-        Row(
-            Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Badge(containerColor = tipoCor) { Text(tipoLabel, color = Color.White, fontSize = 9.sp) }
-            Column(Modifier.weight(1f)) {
-                Text(l.evento ?: l.traje, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = Gray900)
-                Text("Evento: ${fmtDataCompleta(l.dataEvento)} · ${l.vendedor?.nome ?: "—"}", fontSize = 11.sp, color = Gray500)
-                if (!l.tamanhoPaleto.isNullOrBlank() || !l.tamanhoManga.isNullOrBlank()) {
-                    Text(
-                        buildString {
-                            l.tamanhoPaleto?.let { append("Pal $it ") }
-                            l.tamanhoManga?.let  { append("Mg $it ") }
-                            l.camisa?.let        { append("Ca $it ") }
-                            l.calca?.let         { append("Cl $it ") }
-                            l.sapato?.let        { append("Sp $it") }
-                        }.trim(),
-                        fontSize = 11.sp, color = Gray500,
-                    )
+        Column {
+            Row(
+                Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Badge(containerColor = tipoCor) { Text(tipoLabel, color = Color.White, fontSize = 9.sp) }
+                Column(Modifier.weight(1f)) {
+                    Text(l.evento ?: l.traje, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = Gray900)
+                    Text("Evento: ${fmtDataCompleta(l.dataEvento)} · ${l.vendedor?.nome ?: "—"}", fontSize = 11.sp, color = Gray500)
+                    if (!l.tamanhoPaleto.isNullOrBlank() || !l.tamanhoManga.isNullOrBlank()) {
+                        Text(
+                            buildString {
+                                l.tamanhoPaleto?.let { append("Pal $it ") }
+                                l.tamanhoManga?.let  { append("Mg $it ") }
+                                l.camisa?.let        { append("Ca $it ") }
+                                l.calca?.let         { append("Cl $it ") }
+                                l.sapato?.let        { append("Sp $it") }
+                            }.trim(),
+                            fontSize = 11.sp, color = Gray500,
+                        )
+                    }
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(brl(l.valor.toDoubleOrNull() ?: 0.0), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text(fmtDataSimples(l.dataEvento), fontSize = 10.sp, color = Gray500)
                 }
             }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(brl(l.valor.toDoubleOrNull() ?: 0.0), fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
-                Text(fmtDataSimples(l.dataEvento), fontSize = 10.sp, color = Gray500)
+            if (onEditar != null && l.status != "CANCELADO") {
+                HorizontalDivider(color = Gray100)
+                TextButton(
+                    onClick = onEditar,
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                ) {
+                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(14.dp), tint = Blue600)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Editar", fontSize = 12.sp, color = Blue600)
+                }
             }
         }
     }

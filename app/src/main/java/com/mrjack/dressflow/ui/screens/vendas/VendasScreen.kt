@@ -102,11 +102,11 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
     val buscandoCliente = MutableStateFlow(false)
     private var clienteJob: Job? = null
 
-    fun buscarVestido(codigo: String, onResult: (Traje?) -> Unit) {
+    fun buscarTrajePorCodigo(codigo: String, onResult: (Traje?) -> Unit) {
         viewModelScope.launch {
             try {
                 val resp = api.buscarTrajePorCodigo(codigo)
-                onResult(if (resp.isSuccessful && resp.body()?.tipo == "VESTIDO") resp.body() else null)
+                onResult(if (resp.isSuccessful) resp.body() else null)
             } catch (_: Exception) { onResult(null) }
         }
     }
@@ -135,15 +135,32 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
                     clientesBusca.value = emptyList()
                     onSuccess()
                 } else {
-                    val msg = resp.errorBody()?.string()?.let {
-                        try { com.google.gson.JsonParser.parseString(it).asJsonObject.get("error")?.asString } catch (_: Exception) { null }
-                    } ?: "Erro ${resp.code()}"
-                    erro.value = msg
+                    erro.value = parseErro(resp.errorBody()?.string(), resp.code())
                 }
             } catch (e: Exception) { erro.value = e.message }
             finally { isSaving.value = false }
         }
     }
+
+    fun atualizarLocacao(id: Int, form: LocacaoForm, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            isSaving.value = true
+            erro.value = null
+            try {
+                val resp = api.atualizarLocacao(id, buildBody(form))
+                if (resp.isSuccessful) {
+                    sucesso.value = "Locação atualizada!"
+                    onSuccess()
+                } else {
+                    erro.value = parseErro(resp.errorBody()?.string(), resp.code())
+                }
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSaving.value = false }
+        }
+    }
+
+    private fun parseErro(body: String?, code: Int): String =
+        body?.let { try { com.google.gson.JsonParser.parseString(it).asJsonObject.get("error")?.asString } catch (_: Exception) { null } } ?: "Erro $code"
 
     private fun buildBody(form: LocacaoForm): Map<String, Any?> {
         val m = mutableMapOf<String, Any?>(
@@ -159,25 +176,33 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
             "menorDeIdade"   to form.menorDeIdade,
         )
         mapOf(
-            "tamanhoPaleto"   to form.tamanhoPaleto,
-            "tamanhoManga"    to form.tamanhoManga,
-            "camisa"          to form.camisa,
-            "calca"           to form.calca,
-            "tamanhoCalca"    to form.tamanhoCalca,
-            "cinto"           to form.cinto,
-            "sapato"          to form.sapato,
-            "tamanhoColete"   to form.tamanhoColete,
-            "torax"           to form.torax,
-            "abdomen"         to form.abdomen,
-            "quadril"         to form.quadril,
-            "panturrilha"     to form.panturrilha,
-            "busto"           to form.busto,
-            "cintura"         to form.cintura,
-            "ajustes"         to form.ajustes,
-            "observacoes"     to form.observacoes,
-            "motivoNaoFechar" to form.motivoNaoFechar.ifBlank { null },
-            "nomeResponsavel" to if (form.menorDeIdade) form.nomeResponsavel.ifBlank { null } else null,
-            "valorEntrada"    to form.valorEntrada.replace(",", ".").let { if (it.isBlank()) null else it.toDoubleOrNull() },
+            "tamanhoPaleto"    to form.tamanhoPaleto,
+            "tamanhoManga"     to form.tamanhoManga,
+            "camisa"           to form.camisa,
+            "calca"            to form.calca,
+            "tamanhoCalca"     to form.tamanhoCalca,
+            "cinto"            to form.cinto,
+            "sapato"           to form.sapato,
+            "tamanhoColete"    to form.tamanhoColete,
+            "gravata"          to form.gravata,
+            "abotoadura"       to form.abotoadura,
+            "torax"            to form.torax,
+            "abdomen"          to form.abdomen,
+            "quadril"          to form.quadril,
+            "panturrilha"      to form.panturrilha,
+            "busto"            to form.busto,
+            "cintura"          to form.cintura,
+            "ajustes"          to form.ajustes,
+            "observacoes"      to form.observacoes,
+            "motivoNaoFechar"  to form.motivoNaoFechar.ifBlank { null },
+            "nomeResponsavel"  to if (form.menorDeIdade) form.nomeResponsavel.ifBlank { null } else null,
+            "cpfResponsavel"   to if (form.menorDeIdade) form.cpfResponsavel.ifBlank { null } else null,
+            "valorEntrada"     to form.valorEntrada.replace(",", ".").let { if (it.isBlank()) null else it.toDoubleOrNull() },
+            "dataLimiteBoleto" to form.dataLimiteBoleto.ifBlank { null },
+            "vencimentoBoleto" to form.vencimentoBoleto.ifBlank { null },
+            "vendaPaleto"      to if (form.vendaPaleto) true else null,
+            "vendaColete"      to if (form.vendaColete) true else null,
+            "vendaCalca"       to if (form.vendaCalca) true else null,
         ).forEach { (k, v) -> if (v != null && v.toString().isNotBlank()) m[k] = v }
         return m
     }
@@ -206,8 +231,12 @@ data class LocacaoForm(
     var evento: String = "",
     var dataEvento: String = "",
     var formaPagamento: String = "Dinheiro",
+    var valorBase: String = "",
+    var desconto: String = "0",
     var valor: String = "",
     var valorEntrada: String = "",
+    var dataLimiteBoleto: String = "",
+    var vencimentoBoleto: String = "",
     var parcelas: String = "1",
     var sexo: String = "M",
     var tamanhoPaleto: String = "",
@@ -218,6 +247,8 @@ data class LocacaoForm(
     var cinto: String = "",
     var sapato: String = "",
     var tamanhoColete: String = "",
+    var gravata: String = "",
+    var abotoadura: String = "",
     var torax: String = "",
     var abdomen: String = "",
     var quadril: String = "",
@@ -229,6 +260,10 @@ data class LocacaoForm(
     var motivoNaoFechar: String = "",
     var menorDeIdade: Boolean = false,
     var nomeResponsavel: String = "",
+    var cpfResponsavel: String = "",
+    var vendaPaleto: Boolean = false,
+    var vendaColete: Boolean = false,
+    var vendaCalca: Boolean = false,
 )
 
 fun Locacao.toForm() = LocacaoForm(
@@ -239,6 +274,8 @@ fun Locacao.toForm() = LocacaoForm(
     evento          = this.evento ?: "",
     dataEvento      = this.dataEvento.take(10),
     formaPagamento  = this.formaPagamento,
+    valorBase       = this.valor,
+    desconto        = "0",
     valor           = this.valor,
     valorEntrada    = this.valorEntrada ?: "",
     parcelas        = this.parcelas?.toString() ?: "1",
@@ -251,6 +288,8 @@ fun Locacao.toForm() = LocacaoForm(
     cinto           = this.cinto ?: "",
     sapato          = this.sapato ?: "",
     tamanhoColete   = this.tamanhoColete ?: "",
+    gravata         = this.gravata ?: "",
+    abotoadura      = this.abotoadura ?: "",
     torax           = this.torax ?: "",
     abdomen         = this.abdomen ?: "",
     quadril         = this.quadril ?: "",
@@ -949,7 +988,17 @@ fun CompletarCadastroScreen(
     }
 }
 
-// ─── Formulário Nova Locação (chamado de ClientesScreen) ─────────────────────
+// ─── Data class para traje extra ─────────────────────────────────────────────
+
+data class TrajeExtra(
+    val traje: String = "",
+    val sexo: String = "M",
+    val valorBase: String = "",
+    val desconto: String = "0",
+    val trajeInfo: Traje? = null,
+)
+
+// ─── Formulário Nova / Edição de Locação ──────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -959,6 +1008,7 @@ fun LocacaoFormScreen(
     clienteNomeFixo: String = "",
     eventoInicial: String = "",
     dataEventoInicial: String = "",
+    locacaoExistente: Locacao? = null,
     onFechar: () -> Unit,
 ) {
     val clientes        by vm.clientesBusca.collectAsState()
@@ -966,103 +1016,158 @@ fun LocacaoFormScreen(
     val isSaving        by vm.isSaving.collectAsState()
     val erro            by vm.erro.collectAsState()
 
+    val isEditando = locacaoExistente != null
+
     var form by remember {
         mutableStateOf(
-            if (clienteIdFixo > 0) LocacaoForm(
+            locacaoExistente?.toForm() ?: if (clienteIdFixo > 0) LocacaoForm(
                 clienteId = clienteIdFixo, clienteNome = clienteNomeFixo,
                 evento = eventoInicial, dataEvento = dataEventoInicial,
             ) else LocacaoForm()
         )
     }
-    var clienteBusca      by remember { mutableStateOf("") }
-    var showClientes      by remember { mutableStateOf(false) }
-    var mostrarCompletar  by remember { mutableStateOf(false) }
-    var vestidoEncontrado by remember { mutableStateOf<com.mrjack.dressflow.data.model.Traje?>(null) }
-    var buscandoVestido   by remember { mutableStateOf(false) }
 
-    LaunchedEffect(form.traje, form.sexo) {
-        if (form.sexo == "F" && form.traje.length >= 2) {
-            delay(500)
-            buscandoVestido = true
-            vm.buscarVestido(form.traje.trim()) { t ->
-                vestidoEncontrado = t
-                buscandoVestido = false
+    var clienteBusca        by remember { mutableStateOf("") }
+    var showClientes        by remember { mutableStateOf(false) }
+    var mostrarCompletar    by remember { mutableStateOf(false) }
+    var trajeEncontrado     by remember { mutableStateOf<Traje?>(null) }
+    var buscandoTraje       by remember { mutableStateOf(false) }
+    var clienteIdSalvo      by remember { mutableStateOf(0) }
+    var clienteNomeSalvo    by remember { mutableStateOf("") }
+    var showPickerEvento    by remember { mutableStateOf(false) }
+    var showPickerBoleto    by remember { mutableStateOf(false) }
+    var showPickerVencimento by remember { mutableStateOf(false) }
+    var showPadronizacao    by remember { mutableStateOf(false) }
+
+    // Extra trajes (múltiplos trajes no mesmo registro)
+    var extrasTraje by remember { mutableStateOf<List<TrajeExtra>>(emptyList()) }
+
+    // Auto-busca traje principal ao digitar
+    LaunchedEffect(form.traje) {
+        if (form.traje.length >= 2) {
+            delay(600)
+            buscandoTraje = true
+            vm.buscarTrajePorCodigo(form.traje.trim()) { t ->
+                trajeEncontrado = t
+                if (t != null) {
+                    val sexoNovo = if (t.tipo == "VESTIDO") "F" else "M"
+                    val precoBase = t.valorAluguel ?: t.valorVenda ?: ""
+                    form = form.copy(sexo = sexoNovo, valorBase = precoBase)
+                }
+                buscandoTraje = false
             }
-        } else {
-            vestidoEncontrado = null
-            buscandoVestido = false
+        } else if (form.traje.isBlank()) {
+            trajeEncontrado = null
         }
     }
-    var clienteIdSalvo   by remember { mutableStateOf(0) }
-    var clienteNomeSalvo by remember { mutableStateOf("") }
-    var showPickerEvento by remember { mutableStateOf(false) }
-    val pickerEvento = rememberDatePickerState(
-        initialSelectedDateMillis = remember(form.dataEvento) {
-            val p = form.dataEvento.split("-")
-            if (p.size == 3) try {
-                val cal = Calendar.getInstance()
-                cal.set(p[0].toInt(), p[1].toInt() - 1, p[2].toInt(), 12, 0, 0)
-                cal.timeInMillis
-            } catch (_: Exception) { null } else null
-        }
-    )
 
-    if (showPickerEvento) {
-        DatePickerDialog(
-            onDismissRequest = { showPickerEvento = false },
-            confirmButton = {
-                TextButton(onClick = {
-                    pickerEvento.selectedDateMillis?.let { millis ->
-                        val cal = Calendar.getInstance(); cal.timeInMillis = millis
-                        form = form.copy(dataEvento = "%04d-%02d-%02d".format(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH)))
-                    }
-                    showPickerEvento = false
-                }) { Text("OK") }
-            },
-            dismissButton = { TextButton(onClick = { showPickerEvento = false }) { Text("Cancelar") } },
-        ) { DatePicker(state = pickerEvento) }
+    // Valor final calculado
+    val valorFinalNum = run {
+        val base = form.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
+        val desc = form.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
+        if (base > 0) base * (1.0 - desc / 100.0) else form.valor.replace(",", ".").toDoubleOrNull() ?: 0.0
     }
+
+    val pickerEvento     = rememberDatePickerState(initialSelectedDateMillis = parseDateToMillis(form.dataEvento))
+    val pickerBoleto     = rememberDatePickerState(initialSelectedDateMillis = parseDateToMillis(form.dataLimiteBoleto))
+    val pickerVencimento = rememberDatePickerState(initialSelectedDateMillis = parseDateToMillis(form.vencimentoBoleto))
+
+    if (showPickerEvento) DatePickerDialog(
+        onDismissRequest = { showPickerEvento = false },
+        confirmButton = { TextButton(onClick = {
+            pickerEvento.selectedDateMillis?.let { form = form.copy(dataEvento = millisToDateStr(it)) }
+            showPickerEvento = false
+        }) { Text("OK") } },
+        dismissButton = { TextButton(onClick = { showPickerEvento = false }) { Text("Cancelar") } },
+    ) { DatePicker(state = pickerEvento) }
+
+    if (showPickerBoleto) DatePickerDialog(
+        onDismissRequest = { showPickerBoleto = false },
+        confirmButton = { TextButton(onClick = {
+            pickerBoleto.selectedDateMillis?.let { form = form.copy(dataLimiteBoleto = millisToDateStr(it)) }
+            showPickerBoleto = false
+        }) { Text("OK") } },
+        dismissButton = { TextButton(onClick = { showPickerBoleto = false }) { Text("Cancelar") } },
+    ) { DatePicker(state = pickerBoleto) }
+
+    if (showPickerVencimento) DatePickerDialog(
+        onDismissRequest = { showPickerVencimento = false },
+        confirmButton = { TextButton(onClick = {
+            pickerVencimento.selectedDateMillis?.let { form = form.copy(vencimentoBoleto = millisToDateStr(it)) }
+            showPickerVencimento = false
+        }) { Text("OK") } },
+        dismissButton = { TextButton(onClick = { showPickerVencimento = false }) { Text("Cancelar") } },
+    ) { DatePicker(state = pickerVencimento) }
 
     if (mostrarCompletar) {
-        CompletarCadastroScreen(
-            vm = vm,
-            clienteId = clienteIdSalvo,
-            clienteNome = clienteNomeSalvo,
-            onFechar = onFechar,
-        )
+        CompletarCadastroScreen(vm = vm, clienteId = clienteIdSalvo, clienteNome = clienteNomeSalvo, onFechar = onFechar)
         return
+    }
+
+    fun valorParaSalvar(): String {
+        val base = form.valorBase.replace(",", ".").toDoubleOrNull()
+        return if (base != null && base > 0)
+            String.format(java.util.Locale.US, "%.2f", valorFinalNum)
+        else form.valor
+    }
+
+    fun tentarSalvar() {
+        vm.erro.value = null
+        val valorFinal = valorParaSalvar()
+        val formFinal = form.copy(valor = valorFinal)
+        when {
+            formFinal.clienteId == 0       -> vm.erro.value = "Selecione um cliente"
+            formFinal.traje.isBlank()      -> vm.erro.value = "Informe o traje"
+            formFinal.dataEvento.isBlank() -> vm.erro.value = "Informe a data do evento"
+            formFinal.valor.isBlank()      -> vm.erro.value = "Informe o valor"
+            formFinal.tipo == "ORCAMENTO" && formFinal.motivoNaoFechar.isBlank() -> vm.erro.value = "Informe o motivo de não fechar"
+            formFinal.menorDeIdade && formFinal.nomeResponsavel.isBlank() -> vm.erro.value = "Informe o nome do responsável"
+            else -> {
+                if (isEditando && locacaoExistente != null) {
+                    vm.atualizarLocacao(locacaoExistente.id, formFinal) { onFechar() }
+                } else {
+                    vm.salvarLocacao(formFinal) {
+                        // Criar extras sequencialmente
+                        if (extrasTraje.isNotEmpty()) {
+                            extrasTraje.forEach { extra ->
+                                val extraForm = formFinal.copy(
+                                    traje = extra.traje,
+                                    sexo = extra.sexo,
+                                    valorBase = extra.valorBase,
+                                    valor = run {
+                                        val b = extra.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
+                                        val d = extra.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
+                                        if (b > 0) String.format(java.util.Locale.US, "%.2f", b * (1.0 - d / 100.0)) else extra.valorBase
+                                    },
+                                )
+                                vm.salvarLocacao(extraForm) {}
+                            }
+                        }
+                        if (formFinal.tipo == "LOCACAO" || formFinal.tipo == "VENDA") {
+                            clienteIdSalvo = formFinal.clienteId
+                            clienteNomeSalvo = formFinal.clienteNome
+                            mostrarCompletar = true
+                        } else {
+                            onFechar()
+                        }
+                    }
+                }
+            }
+        }
     }
 
     val formasPagamento = listOf(
         "Dinheiro", "PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Cheque", "Parceria", "Permuta", "Outro",
     )
 
-    fun tentarSalvar() {
-        vm.erro.value = null
-        when {
-            form.clienteId == 0       -> vm.erro.value = "Selecione um cliente"
-            form.traje.isBlank()      -> vm.erro.value = "Informe o traje"
-            form.dataEvento.isBlank() -> vm.erro.value = "Informe a data do evento"
-            form.valor.isBlank()      -> vm.erro.value = "Informe o valor"
-            form.tipo == "ORCAMENTO" && form.motivoNaoFechar.isBlank() -> vm.erro.value = "Informe o motivo de não fechar"
-            form.menorDeIdade && form.nomeResponsavel.isBlank() -> vm.erro.value = "Informe o nome do responsável"
-            else -> vm.salvarLocacao(form) {
-                if (form.tipo == "LOCACAO" || form.tipo == "VENDA") {
-                    clienteIdSalvo = form.clienteId
-                    clienteNomeSalvo = form.clienteNome
-                    mostrarCompletar = true
-                } else {
-                    onFechar()
-                }
-            }
-        }
-    }
-
     Column(Modifier.fillMaxSize()) {
         Surface(shadowElevation = 2.dp, color = Color.White) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onFechar) { Icon(Icons.Default.Close, null) }
-                Text("Novo registro", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                Text(
+                    if (isEditando) "Editar registro" else "Novo registro",
+                    fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f),
+                )
                 Button(
                     onClick = { tentarSalvar() },
                     enabled = !isSaving,
@@ -1070,7 +1175,7 @@ fun LocacaoFormScreen(
                     shape = RoundedCornerShape(8.dp),
                 ) {
                     if (isSaving) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                    else Text("Registrar", fontWeight = FontWeight.SemiBold)
+                    else Text(if (isEditando) "Salvar" else "Registrar", fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -1085,7 +1190,7 @@ fun LocacaoFormScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
 
-            // ── Tipo de registro ──────────────────────────────────────────────
+            // ── TIPO DE REGISTRO ──────────────────────────────────────────────
             Text("TIPO DE REGISTRO", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("LOCACAO" to "Locação", "ORCAMENTO" to "Orçamento", "VENDA" to "Venda").forEach { (v, label) ->
@@ -1103,7 +1208,7 @@ fun LocacaoFormScreen(
                 }
             }
 
-            // ── Cliente ───────────────────────────────────────────────────────
+            // ── CLIENTE ───────────────────────────────────────────────────────
             if (clienteIdFixo > 0) {
                 Surface(color = Green100, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
                     Row(Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1149,7 +1254,7 @@ fun LocacaoFormScreen(
                 }
             }
 
-            // ── Dados do evento ───────────────────────────────────────────────
+            // ── DADOS DO EVENTO ───────────────────────────────────────────────
             Text("DADOS DO EVENTO", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 VField("Evento", form.evento, { form = form.copy(evento = it) }, caps = KeyboardCapitalization.Sentences, modifier = Modifier.weight(1.2f))
@@ -1159,92 +1264,93 @@ fun LocacaoFormScreen(
                 ) {
                     Column(Modifier.padding(horizontal = 12.dp, vertical = 12.dp)) {
                         Text("Data do evento *", fontSize = 12.sp, color = Gray500)
-                        Text(if (form.dataEvento.isBlank()) "Selecionar" else fmtDataCompleta(form.dataEvento),
-                            fontSize = 14.sp, color = if (form.dataEvento.isBlank()) Gray500 else Gray900)
+                        Text(
+                            if (form.dataEvento.isBlank()) "Selecionar" else fmtDataCompleta(form.dataEvento),
+                            fontSize = 14.sp, color = if (form.dataEvento.isBlank()) Gray500 else Gray900,
+                        )
                     }
                 }
             }
 
-            // ── Traje / Vestido ────────────────────────────────────────────────
+            // ── TRAJE / VESTIDO ───────────────────────────────────────────────
             Text(if (form.sexo == "F") "VESTIDO" else "TRAJE", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                VField(if (form.sexo == "F") "Código do vestido *" else "Traje *", form.traje, { form = form.copy(traje = it) }, caps = KeyboardCapitalization.Sentences, modifier = Modifier.weight(1f))
-                Column {
-                    Text("Sexo", fontSize = 12.sp, color = Gray500)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = form.traje,
+                    onValueChange = { form = form.copy(traje = it.uppercase()) },
+                    label = { Text(if (form.sexo == "F") "Código do vestido *" else "Código do traje *") },
+                    modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Done),
+                    trailingIcon = {
+                        when {
+                            buscandoTraje -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            trajeEncontrado != null -> Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16A34A))
+                            else -> {}
+                        }
+                    },
+                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Sexo", fontSize = 11.sp, color = Gray500)
                     Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        listOf("M" to "Masc", "F" to "Fem").forEach { (v, label) ->
-                            FilterChip(selected = form.sexo == v, onClick = { form = form.copy(sexo = v) }, label = { Text(label, fontSize = 12.sp) })
+                        listOf("M" to "M", "F" to "F").forEach { (v, label) ->
+                            FilterChip(selected = form.sexo == v, onClick = { form = form.copy(sexo = v); trajeEncontrado = null }, label = { Text(label, fontSize = 12.sp) })
                         }
                     }
                 }
             }
 
-            // Card de vestido encontrado (somente feminino)
-            if (form.sexo == "F") {
-                if (buscandoVestido) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Blue600)
-                        Text("Buscando vestido...", fontSize = 12.sp, color = Gray500)
-                    }
-                } else if (vestidoEncontrado != null) {
-                    val v = vestidoEncontrado!!
-                    val preco = v.valorAluguel ?: v.valorVenda
-                    LaunchedEffect(v.codigo) {
-                        if (!preco.isNullOrBlank() && form.valor.isBlank()) {
-                            form = form.copy(valor = preco)
+            // Card do traje encontrado (M e F)
+            if (buscandoTraje) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Blue600)
+                    Text("Buscando traje...", fontSize = 12.sp, color = Gray500)
+                }
+            } else if (trajeEncontrado != null) {
+                val t = trajeEncontrado!!
+                Surface(
+                    shape = RoundedCornerShape(10.dp), color = Color(0xFFF0F9FF),
+                    border = BorderStroke(1.dp, Blue200), modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (!t.imagemUrl.isNullOrBlank()) {
+                            coil.compose.AsyncImage(
+                                model = t.imagemUrl, contentDescription = t.nome,
+                                modifier = Modifier.size(80.dp).clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop,
+                            )
                         }
-                    }
-                    Surface(
-                        shape = RoundedCornerShape(10.dp),
-                        color = Color(0xFFF0F9FF),
-                        border = BorderStroke(1.dp, Blue200),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(10.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            if (!v.imagemUrl.isNullOrBlank()) {
-                                coil.compose.AsyncImage(
-                                    model = v.imagemUrl,
-                                    contentDescription = v.nome,
-                                    modifier = Modifier.size(56.dp).clip(RoundedCornerShape(8.dp)),
-                                    contentScale = ContentScale.Crop,
-                                )
-                            }
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(v.nome, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF1E3A8A))
-                                Text(v.codigo, fontSize = 11.sp, color = Blue600)
-                                if (!preco.isNullOrBlank()) {
-                                    Text("R$ $preco", fontSize = 12.sp, color = Blue700, fontWeight = FontWeight.Medium)
-                                }
-                            }
-                            Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16A34A), modifier = Modifier.size(20.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(t.nome, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Color(0xFF1E3A8A))
+                            Text("Cód: ${t.codigo}", fontSize = 11.sp, color = Blue600)
+                            val precoExib = t.valorAluguel ?: t.valorVenda
+                            if (!precoExib.isNullOrBlank()) Text("R$ $precoExib", fontSize = 12.sp, color = Blue700, fontWeight = FontWeight.Medium)
                         }
+                        Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16A34A), modifier = Modifier.size(22.dp))
                     }
                 }
             }
 
-            // Tamanhos — masculino
+            // ── ITENS LOCADOS (masculino) ──────────────────────────────────────
             if (form.sexo == "M") {
+                Text("ITENS LOCADOS", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+                LocacaoItemRow("Paletó", form.tamanhoPaleto, { form = form.copy(tamanhoPaleto = it) }, form.vendaPaleto, { form = form.copy(vendaPaleto = it) })
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    VField("Paletó", form.tamanhoPaleto, { form = form.copy(tamanhoPaleto = it) }, modifier = Modifier.weight(1f))
                     VField("Manga", form.tamanhoManga, { form = form.copy(tamanhoManga = it) }, modifier = Modifier.weight(1f))
-                    VField("Colete", form.tamanhoColete, { form = form.copy(tamanhoColete = it) }, modifier = Modifier.weight(1f))
+                    LocacaoItemRow("Colete", form.tamanhoColete, { form = form.copy(tamanhoColete = it) }, form.vendaColete, { form = form.copy(vendaColete = it) }, modifier = Modifier.weight(1.5f))
                 }
+                LocacaoItemRow("Calça", form.calca, { form = form.copy(calca = it) }, form.vendaCalca, { form = form.copy(vendaCalca = it) }, tamanhoExtra = form.tamanhoCalca, onTamanhoExtra = { form = form.copy(tamanhoCalca = it) }, labelTamanhoExtra = "Tam. Calça")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     VField("Camisa", form.camisa, { form = form.copy(camisa = it) }, modifier = Modifier.weight(1f))
-                    VField("Calça", form.calca, { form = form.copy(calca = it) }, modifier = Modifier.weight(1f))
-                    VField("Tam. calça", form.tamanhoCalca, { form = form.copy(tamanhoCalca = it) }, modifier = Modifier.weight(1f))
+                    VField("Gravata", form.gravata, { form = form.copy(gravata = it) }, modifier = Modifier.weight(1f))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     VField("Cinto", form.cinto, { form = form.copy(cinto = it) }, modifier = Modifier.weight(1f))
                     VField("Sapato", form.sapato, { form = form.copy(sapato = it) }, modifier = Modifier.weight(1f))
+                    VField("Abotoadura", form.abotoadura, { form = form.copy(abotoadura = it) }, modifier = Modifier.weight(1f))
                 }
             }
 
-            // ── Medidas corporais ─────────────────────────────────────────────
+            // ── MEDIDAS CORPORAIS ─────────────────────────────────────────────
             Text("MEDIDAS CORPORAIS", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
             if (form.sexo == "M") {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1261,82 +1367,257 @@ fun LocacaoFormScreen(
                 }
             }
 
-            // ── Menor de Idade ────────────────────────────────────────────────
+            // ── MENOR DE IDADE ────────────────────────────────────────────────
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Checkbox(checked = form.menorDeIdade, onCheckedChange = { form = form.copy(menorDeIdade = it, nomeResponsavel = if (!it) "" else form.nomeResponsavel) })
                 Text("Menor de Idade", fontSize = 14.sp, color = Gray700)
             }
             if (form.menorDeIdade) {
-                VField("Nome do responsável (pai/mãe) *", form.nomeResponsavel, { form = form.copy(nomeResponsavel = it) }, caps = KeyboardCapitalization.Words)
+                VField("Nome do responsável *", form.nomeResponsavel, { form = form.copy(nomeResponsavel = it) }, caps = KeyboardCapitalization.Words)
+                VField("CPF do responsável", form.cpfResponsavel, { form = form.copy(cpfResponsavel = it) })
             }
 
-            // ── Pagamento ─────────────────────────────────────────────────────
+            // ── PAGAMENTO ─────────────────────────────────────────────────────
             Text("PAGAMENTO", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+
+            // Valor base + desconto
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(
-                    value = form.valor, onValueChange = { form = form.copy(valor = it) },
-                    label = { Text("Valor (R$) *") }, modifier = Modifier.weight(1f),
+                    value = form.valorBase, onValueChange = { form = form.copy(valorBase = it) },
+                    label = { Text("Valor base (R$) *") }, modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
                     singleLine = true, shape = RoundedCornerShape(10.dp),
                 )
                 OutlinedTextField(
-                    value = form.valorEntrada, onValueChange = { form = form.copy(valorEntrada = it) },
-                    label = { Text("Entrada") }, modifier = Modifier.weight(1f),
+                    value = form.desconto, onValueChange = { form = form.copy(desconto = it) },
+                    label = { Text("Desconto %") }, modifier = Modifier.width(110.dp),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
-                    singleLine = true, shape = RoundedCornerShape(10.dp),
-                )
-                OutlinedTextField(
-                    value = form.parcelas, onValueChange = { form = form.copy(parcelas = it) },
-                    label = { Text("Parcelas") }, modifier = Modifier.width(90.dp),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
                     singleLine = true, shape = RoundedCornerShape(10.dp),
                 )
             }
+
+            // Valor final
+            val baseNum = form.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
+            val descNum = form.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
+            if (baseNum > 0) {
+                Surface(
+                    color = if (descNum > 0) Color(0xFFECFDF5) else Color(0xFFF0F9FF),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, if (descNum > 0) Color(0xFF6EE7B7) else Blue200),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Column {
+                            Text("Valor final", fontSize = 12.sp, color = Gray500)
+                            if (descNum > 0) Text("(${descNum.toInt()}% de desconto aplicado)", fontSize = 11.sp, color = Color(0xFF059669))
+                        }
+                        Text(brl(valorFinalNum), fontWeight = FontWeight.Bold, fontSize = 20.sp, color = if (descNum > 0) Color(0xFF059669) else Color(0xFF1E3A8A))
+                    }
+                }
+            } else {
+                OutlinedTextField(
+                    value = form.valor, onValueChange = { form = form.copy(valor = it) },
+                    label = { Text("Valor (R$) *") }, modifier = Modifier.fillMaxWidth(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                    singleLine = true, shape = RoundedCornerShape(10.dp),
+                )
+            }
+
+            // Forma de pagamento
             Text("Forma de pagamento *", fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium)
             formasPagamento.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { fp ->
-                        FilterChip(
-                            selected = form.formaPagamento == fp,
-                            onClick = { form = form.copy(formaPagamento = fp) },
-                            label = { Text(fp, fontSize = 11.sp) },
-                            modifier = Modifier.weight(1f),
-                        )
+                        FilterChip(selected = form.formaPagamento == fp, onClick = { form = form.copy(formaPagamento = fp, parcelas = "1") },
+                            label = { Text(fp, fontSize = 11.sp) }, modifier = Modifier.weight(1f))
                     }
                     repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
 
-            // ── Ajustes ───────────────────────────────────────────────────────
+            // ── BOLETO ────────────────────────────────────────────────────────
+            if (form.formaPagamento == "Boleto") {
+                Text("PARCELAMENTO — BOLETO", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Parcelas:", fontSize = 13.sp, color = Gray700)
+                    (1..6).forEach { n ->
+                        FilterChip(selected = form.parcelas == n.toString(), onClick = { form = form.copy(parcelas = n.toString()) },
+                            label = { Text("${n}x", fontSize = 12.sp) })
+                    }
+                }
+                val numParcelas = form.parcelas.toIntOrNull() ?: 1
+                val valorBoleto = valorFinalNum
+                if (numParcelas == 1) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        OutlinedTextField(
+                            value = form.valorEntrada, onValueChange = { form = form.copy(valorEntrada = it) },
+                            label = { Text("Entrada (R$)") }, modifier = Modifier.weight(1f),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                            singleLine = true, shape = RoundedCornerShape(10.dp),
+                        )
+                        val saldo = valorBoleto - (form.valorEntrada.replace(",", ".").toDoubleOrNull() ?: 0.0)
+                        Surface(modifier = Modifier.weight(1f), shape = RoundedCornerShape(10.dp), color = Gray50, border = BorderStroke(1.dp, Gray200)) {
+                            Column(Modifier.padding(horizontal = 12.dp, vertical = 14.dp)) {
+                                Text("Saldo", fontSize = 12.sp, color = Gray500)
+                                Text(brl(if (saldo > 0) saldo else 0.0), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Gray900)
+                            }
+                        }
+                    }
+                    Surface(shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, Gray200), color = Color.White,
+                        modifier = Modifier.fillMaxWidth().clickable { showPickerBoleto = true }) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 14.dp)) {
+                            Text("Data limite para pagamento", fontSize = 12.sp, color = Gray500)
+                            Text(if (form.dataLimiteBoleto.isBlank()) "Selecionar data" else fmtDataCompleta(form.dataLimiteBoleto),
+                                fontSize = 14.sp, color = if (form.dataLimiteBoleto.isBlank()) Gray500 else Gray900)
+                        }
+                    }
+                } else {
+                    val valorParcela = if (numParcelas > 0) valorBoleto / numParcelas else 0.0
+                    Surface(shape = RoundedCornerShape(10.dp), border = BorderStroke(1.dp, Gray200), color = Color.White,
+                        modifier = Modifier.fillMaxWidth().clickable { showPickerVencimento = true }) {
+                        Column(Modifier.padding(horizontal = 12.dp, vertical = 14.dp)) {
+                            Text("Vencimento da 1ª parcela", fontSize = 12.sp, color = Gray500)
+                            Text(if (form.vencimentoBoleto.isBlank()) "Selecionar data" else fmtDataCompleta(form.vencimentoBoleto),
+                                fontSize = 14.sp, color = if (form.vencimentoBoleto.isBlank()) Gray500 else Gray900)
+                        }
+                    }
+                    if (form.vencimentoBoleto.isNotBlank() && valorParcela > 0) {
+                        Surface(shape = RoundedCornerShape(10.dp), color = Blue50, border = BorderStroke(1.dp, Blue200), modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("CRONOGRAMA", fontSize = 10.sp, color = Blue700, fontWeight = FontWeight.SemiBold)
+                                repeat(numParcelas) { i ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("${i + 1}ª parcela — ${addMonthsToDate(form.vencimentoBoleto, i)}", fontSize = 12.sp, color = Blue700)
+                                        Text(brl(valorParcela), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E3A8A))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── CARTÃO DE CRÉDITO — PARCELAS ──────────────────────────────────
+            if (form.formaPagamento == "Cartão de Crédito") {
+                Text("PARCELAMENTO", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    (1..5).forEach { n ->
+                        FilterChip(selected = form.parcelas == n.toString(), onClick = { form = form.copy(parcelas = n.toString()) },
+                            label = { Text("${n}x", fontSize = 12.sp) }, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+
+            // ── TRAJES EXTRAS ─────────────────────────────────────────────────
+            if (!isEditando) {
+                Text("TRAJES ADICIONAIS", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+                extrasTraje.forEachIndexed { idx, extra ->
+                    TrajeExtraCard(
+                        extra = extra,
+                        vm = vm,
+                        onUpdate = { extrasTraje = extrasTraje.toMutableList().also { it[idx] = extra } },
+                        onRemover = { extrasTraje = extrasTraje.toMutableList().also { it.removeAt(idx) } },
+                        onChanged = { novo -> extrasTraje = extrasTraje.toMutableList().also { it[idx] = novo } },
+                    )
+                }
+                OutlinedButton(
+                    onClick = { extrasTraje = extrasTraje + TrajeExtra() },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    border = BorderStroke(1.dp, Blue200),
+                ) {
+                    Icon(Icons.Default.Add, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Adicionar outro traje", fontSize = 13.sp, color = Blue600)
+                }
+            }
+
+            // ── AJUSTES ───────────────────────────────────────────────────────
             OutlinedTextField(
                 value = form.ajustes, onValueChange = { form = form.copy(ajustes = it) },
                 label = { Text("Ajustes") }, modifier = Modifier.fillMaxWidth(),
                 minLines = 2, shape = RoundedCornerShape(10.dp),
             )
 
-            // ── Motivo de não fechar (apenas Orçamento) ───────────────────────
+            // ── MOTIVO DE NÃO FECHAR (apenas Orçamento) ───────────────────────
             if (form.tipo == "ORCAMENTO") {
                 OutlinedTextField(
                     value = form.motivoNaoFechar, onValueChange = { form = form.copy(motivoNaoFechar = it) },
                     label = { Text("Motivo de não fechar *") },
-                    modifier = Modifier.fillMaxWidth(),
-                    minLines = 3, shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.fillMaxWidth(), minLines = 3, shape = RoundedCornerShape(10.dp),
                     placeholder = { Text("Ex: Cliente achou caro, vai pensar, prefere outra cor...") },
                     colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = Color(0xFFFCD34D),
-                        focusedBorderColor = Color(0xFFF59E0B),
-                        unfocusedContainerColor = Color(0xFFFFFBEB),
-                        focusedContainerColor = Color(0xFFFFFBEB),
+                        unfocusedBorderColor = Color(0xFFFCD34D), focusedBorderColor = Color(0xFFF59E0B),
+                        unfocusedContainerColor = Color(0xFFFFFBEB), focusedContainerColor = Color(0xFFFFFBEB),
                     ),
                 )
             }
 
-            // ── Observações ───────────────────────────────────────────────────
+            // ── OBSERVAÇÕES ───────────────────────────────────────────────────
             OutlinedTextField(
                 value = form.observacoes, onValueChange = { form = form.copy(observacoes = it) },
                 label = { Text("Observações") }, modifier = Modifier.fillMaxWidth(),
                 minLines = 2, shape = RoundedCornerShape(10.dp),
             )
+
+            // ── RESUMO FINANCEIRO ─────────────────────────────────────────────
+            if (valorFinalNum > 0) {
+                val totalExtras = extrasTraje.sumOf { e ->
+                    val b = e.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
+                    val d = e.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
+                    if (b > 0) b * (1.0 - d / 100.0) else 0.0
+                }
+                val totalGeral = valorFinalNum + totalExtras
+                Surface(color = Color(0xFF1F2937), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("RESUMO FINANCEIRO", fontSize = 10.sp, color = Color(0xFF9CA3AF), fontWeight = FontWeight.SemiBold)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Traje principal", fontSize = 13.sp, color = Color.White)
+                            Text(brl(valorFinalNum), fontSize = 13.sp, color = Color(0xFF86EFAC), fontWeight = FontWeight.Medium)
+                        }
+                        if (extrasTraje.isNotEmpty()) {
+                            extrasTraje.forEachIndexed { i, e ->
+                                val v = run { val b = e.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0; val d = e.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0; if (b > 0) b * (1.0 - d / 100.0) else 0.0 }
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Extra ${i + 1}: ${e.traje.ifBlank { "—" }}", fontSize = 12.sp, color = Color(0xFF9CA3AF))
+                                    Text(brl(v), fontSize = 12.sp, color = Color(0xFF86EFAC))
+                                }
+                            }
+                            HorizontalDivider(color = Color(0xFF374151))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text("TOTAL", fontSize = 14.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                Text(brl(totalGeral), fontSize = 16.sp, color = Color(0xFF4ADE80), fontWeight = FontWeight.Black)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── BOTÃO FAZER PADRONIZAÇÃO ──────────────────────────────────────
+            if (!isEditando && form.tipo != "ORCAMENTO") {
+                Surface(
+                    color = Color(0xFFFFFBEB), shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFFCD34D)), modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Icon(Icons.Default.Star, null, tint = Color(0xFFD97706), modifier = Modifier.size(18.dp))
+                            Text("Evento de padronização?", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Color(0xFF92400E))
+                        }
+                        Text("Se este cliente faz parte de um casamento, formatura ou evento em grupo, crie uma padronização para controlar todos os trajes.", fontSize = 12.sp, color = Color(0xFFB45309))
+                        Button(
+                            onClick = { showPadronizacao = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD97706)),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Icon(Icons.Default.Star, null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Fazer Padronização", fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                }
+            }
 
             Spacer(Modifier.height(8.dp))
             Button(
@@ -1347,8 +1628,138 @@ fun LocacaoFormScreen(
                 shape = RoundedCornerShape(8.dp),
             ) {
                 if (isSaving) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
-                else Text("Registrar", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+                else Text(if (isEditando) "Salvar alterações" else "Registrar", fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
             }
+        }
+    }
+
+    if (showPadronizacao) {
+        Dialog(onDismissRequest = { showPadronizacao = false }) {
+            Surface(shape = RoundedCornerShape(16.dp), color = Color.White) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Fazer Padronização", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    Text("Para criar uma padronização, acesse a aba Padronizações no menu principal.", fontSize = 14.sp, color = Gray700)
+                    Button(onClick = { showPadronizacao = false }, modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Blue600), shape = RoundedCornerShape(8.dp)) {
+                        Text("Entendido")
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ─── Card de traje extra ──────────────────────────────────────────────────────
+
+@Composable
+fun TrajeExtraCard(
+    extra: TrajeExtra,
+    vm: VendasViewModel,
+    onUpdate: () -> Unit,
+    onRemover: () -> Unit,
+    onChanged: (TrajeExtra) -> Unit,
+) {
+    var trajeInfo by remember { mutableStateOf<Traje?>(extra.trajeInfo) }
+    var buscando  by remember { mutableStateOf(false) }
+
+    LaunchedEffect(extra.traje) {
+        if (extra.traje.length >= 2) {
+            delay(600)
+            buscando = true
+            vm.buscarTrajePorCodigo(extra.traje.trim()) { t ->
+                trajeInfo = t
+                if (t != null) {
+                    val precoBase = t.valorAluguel ?: t.valorVenda ?: ""
+                    onChanged(extra.copy(sexo = if (t.tipo == "VESTIDO") "F" else "M", valorBase = precoBase, trajeInfo = t))
+                }
+                buscando = false
+            }
+        }
+    }
+
+    Surface(color = Gray50, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Gray200), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Traje extra", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                IconButton(onClick = onRemover, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Close, null, tint = Red500, modifier = Modifier.size(18.dp))
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = extra.traje,
+                    onValueChange = { onChanged(extra.copy(traje = it.uppercase())) },
+                    label = { Text("Código") },
+                    modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                    trailingIcon = {
+                        when {
+                            buscando -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            trajeInfo != null -> Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16A34A))
+                            else -> {}
+                        }
+                    },
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf("M" to "M", "F" to "F").forEach { (v, label) ->
+                        FilterChip(selected = extra.sexo == v, onClick = { onChanged(extra.copy(sexo = v)) }, label = { Text(label, fontSize = 11.sp) })
+                    }
+                }
+            }
+            if (trajeInfo != null) {
+                val t = trajeInfo!!
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (!t.imagemUrl.isNullOrBlank()) {
+                        coil.compose.AsyncImage(model = t.imagemUrl, contentDescription = null,
+                            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
+                    }
+                    Column {
+                        Text(t.nome, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = Blue700)
+                        val p = t.valorAluguel ?: t.valorVenda
+                        if (!p.isNullOrBlank()) Text("R$ $p", fontSize = 11.sp, color = Blue600)
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = extra.valorBase, onValueChange = { onChanged(extra.copy(valorBase = it)) },
+                    label = { Text("Valor base") }, modifier = Modifier.weight(1f),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true, shape = RoundedCornerShape(8.dp),
+                )
+                OutlinedTextField(
+                    value = extra.desconto, onValueChange = { onChanged(extra.copy(desconto = it)) },
+                    label = { Text("Desc. %") }, modifier = Modifier.width(90.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true, shape = RoundedCornerShape(8.dp),
+                )
+            }
+        }
+    }
+}
+
+// ─── Item locado com toggle venda ─────────────────────────────────────────────
+
+@Composable
+fun LocacaoItemRow(
+    label: String,
+    tamanho: String,
+    onTamanho: (String) -> Unit,
+    isVenda: Boolean,
+    onVenda: (Boolean) -> Unit,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    tamanhoExtra: String? = null,
+    onTamanhoExtra: ((String) -> Unit)? = null,
+    labelTamanhoExtra: String? = null,
+) {
+    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+        VField(label, tamanho, onTamanho, modifier = Modifier.weight(1f))
+        if (tamanhoExtra != null && onTamanhoExtra != null && labelTamanhoExtra != null) {
+            VField(labelTamanhoExtra, tamanhoExtra, onTamanhoExtra, modifier = Modifier.weight(1f))
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(bottom = 4.dp)) {
+            Text("Venda", fontSize = 10.sp, color = Gray500)
+            Checkbox(checked = isVenda, onCheckedChange = onVenda, modifier = Modifier.size(24.dp))
         }
     }
 }
@@ -1368,7 +1779,35 @@ fun VField(
     )
 }
 
-// ─── Helpers de formatação ────────────────────────────────────────────────────
+// ─── Helpers de formatação e datas ───────────────────────────────────────────
+
+fun parseDateToMillis(date: String): Long? {
+    if (date.isBlank()) return null
+    return try {
+        val p = date.split("-")
+        if (p.size == 3) {
+            val cal = Calendar.getInstance()
+            cal.set(p[0].toInt(), p[1].toInt() - 1, p[2].toInt(), 12, 0, 0)
+            cal.timeInMillis
+        } else null
+    } catch (_: Exception) { null }
+}
+
+fun millisToDateStr(millis: Long): String {
+    val cal = Calendar.getInstance()
+    cal.timeInMillis = millis
+    return "%04d-%02d-%02d".format(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
+}
+
+fun addMonthsToDate(dateStr: String, months: Int): String = try {
+    val p = dateStr.split("-")
+    if (p.size == 3) {
+        val cal = Calendar.getInstance()
+        cal.set(p[0].toInt(), p[1].toInt() - 1, p[2].toInt())
+        cal.add(Calendar.MONTH, months)
+        "${cal.get(Calendar.DAY_OF_MONTH).toString().padStart(2, '0')}/${(cal.get(Calendar.MONTH) + 1).toString().padStart(2, '0')}/${cal.get(Calendar.YEAR)}"
+    } else dateStr
+} catch (_: Exception) { dateStr }
 
 fun brl(v: Double): String {
     val s = String.format(java.util.Locale.US, "%.2f", v)
