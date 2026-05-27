@@ -159,6 +159,54 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun criarVendaLocacao(form: LocacaoForm) {
+        val itensVenda = form.itensVenda
+        if (itensVenda.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                val descPartes = itensVenda.map { (key, price) ->
+                    val sizeStr = when (key) {
+                        "paleto"     -> if (form.tamanhoPaleto.isNotBlank()) " (${form.tamanhoPaleto})" else ""
+                        "colete"     -> if (form.tamanhoColete.isNotBlank()) " (${form.tamanhoColete})" else ""
+                        "calca"      -> if (form.tamanhoCalca.isNotBlank()) " (${form.tamanhoCalca})" else if (form.calca.isNotBlank()) " (${form.calca})" else ""
+                        "camisa"     -> if (form.camisa.isNotBlank()) " (${form.camisa})" else ""
+                        "gravata"    -> if (form.gravata.isNotBlank()) " (${form.gravata})" else ""
+                        "cinto"      -> if (form.cinto.isNotBlank()) " (${form.cinto})" else ""
+                        "sapato"     -> if (form.sapato.isNotBlank()) " (${form.sapato})" else ""
+                        "abotoadura" -> if (form.abotoadura.isNotBlank()) " (${form.abotoadura})" else ""
+                        else         -> ""
+                    }
+                    val itemLabel = when (key) {
+                        "paleto"     -> "Paletó$sizeStr"
+                        "colete"     -> "Colete$sizeStr"
+                        "calca"      -> "Calça$sizeStr"
+                        "camisa"     -> "Camisa$sizeStr"
+                        "gravata"    -> "Gravata$sizeStr"
+                        "cinto"      -> "Cinto$sizeStr"
+                        "sapato"     -> "Sapato$sizeStr"
+                        "abotoadura" -> "Abotoadura$sizeStr"
+                        else         -> key
+                    }
+                    val priceNum = price.replace(",", ".").toDoubleOrNull() ?: 0.0
+                    "$itemLabel — ${brl(priceNum)}"
+                }
+                val trajeVenda = descPartes.joinToString(" / ")
+                val totalVenda = itensVenda.values.sumOf { it.replace(",", ".").toDoubleOrNull() ?: 0.0 }
+                val body = mapOf<String, Any?>(
+                    "clienteId"      to form.clienteId,
+                    "tipo"           to "VENDA",
+                    "traje"          to trajeVenda,
+                    "dataEvento"     to form.dataEvento,
+                    "formaPagamento" to form.formaPagamento,
+                    "valor"          to String.format(java.util.Locale.US, "%.2f", totalVenda),
+                    "sexo"           to form.sexo,
+                    "itensVenda"     to com.google.gson.Gson().toJson(itensVenda),
+                )
+                api.criarLocacao(body)
+            } catch (_: Exception) { }
+        }
+    }
+
     private fun parseErro(body: String?, code: Int): String =
         body?.let { try { com.google.gson.JsonParser.parseString(it).asJsonObject.get("error")?.asString } catch (_: Exception) { null } } ?: "Erro $code"
 
@@ -200,10 +248,8 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
             "valorEntrada"     to form.valorEntrada.replace(",", ".").let { if (it.isBlank()) null else it.toDoubleOrNull() },
             "dataLimiteBoleto" to form.dataLimiteBoleto.ifBlank { null },
             "vencimentoBoleto" to form.vencimentoBoleto.ifBlank { null },
-            "vendaPaleto"      to if (form.vendaPaleto) true else null,
-            "vendaColete"      to if (form.vendaColete) true else null,
-            "vendaCalca"       to if (form.vendaCalca) true else null,
             "itensLocados"     to form.itensLocados,
+            "itensVenda"       to if (form.itensVenda.isNotEmpty()) com.google.gson.Gson().toJson(form.itensVenda) else null,
         ).forEach { (k, v) -> if (v != null && v.toString().isNotBlank()) m[k] = v }
         return m
     }
@@ -262,9 +308,7 @@ data class LocacaoForm(
     var menorDeIdade: Boolean = false,
     var nomeResponsavel: String = "",
     var cpfResponsavel: String = "",
-    var vendaPaleto: Boolean = false,
-    var vendaColete: Boolean = false,
-    var vendaCalca: Boolean = false,
+    var itensVenda: Map<String, String> = emptyMap(),
     var itensLocados: String = "",
 )
 
@@ -1189,6 +1233,9 @@ fun LocacaoFormScreen(
                                 vm.salvarLocacao(extraForm) {}
                             }
                         }
+                        if (formFinal.itensVenda.isNotEmpty()) {
+                            vm.criarVendaLocacao(formFinal)
+                        }
                         if (formFinal.tipo == "LOCACAO" || formFinal.tipo == "VENDA") {
                             clienteIdSalvo = formFinal.clienteId
                             clienteNomeSalvo = formFinal.clienteNome
@@ -1383,20 +1430,75 @@ fun LocacaoFormScreen(
             // ── ITENS LOCADOS (masculino) ──────────────────────────────────────
             if (form.sexo == "M") {
                 Text("ITENS LOCADOS", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
-                LocacaoItemRow("Paletó", form.tamanhoPaleto, { form = form.copy(tamanhoPaleto = it) }, form.vendaPaleto, { form = form.copy(vendaPaleto = it) })
+                LocacaoItemRow(
+                    label = "Paletó", tamanho = form.tamanhoPaleto, onTamanho = { form = form.copy(tamanhoPaleto = it) },
+                    isVenda = form.itensVenda.containsKey("paleto"),
+                    onVenda = { c -> form = form.copy(itensVenda = if (c) form.itensVenda + ("paleto" to "") else form.itensVenda - "paleto") },
+                    vendaValor = form.itensVenda["paleto"] ?: "",
+                    onVendaValor = { form = form.copy(itensVenda = form.itensVenda + ("paleto" to it)) },
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     VField("Manga", form.tamanhoManga, { form = form.copy(tamanhoManga = it) }, modifier = Modifier.weight(1f))
-                    LocacaoItemRow("Colete", form.tamanhoColete, { form = form.copy(tamanhoColete = it) }, form.vendaColete, { form = form.copy(vendaColete = it) }, modifier = Modifier.weight(1.5f))
+                    LocacaoItemRow(
+                        label = "Colete", tamanho = form.tamanhoColete, onTamanho = { form = form.copy(tamanhoColete = it) },
+                        isVenda = form.itensVenda.containsKey("colete"),
+                        onVenda = { c -> form = form.copy(itensVenda = if (c) form.itensVenda + ("colete" to "") else form.itensVenda - "colete") },
+                        vendaValor = form.itensVenda["colete"] ?: "",
+                        onVendaValor = { form = form.copy(itensVenda = form.itensVenda + ("colete" to it)) },
+                        modifier = Modifier.weight(1.5f),
+                    )
                 }
-                LocacaoItemRow("Calça", form.calca, { form = form.copy(calca = it) }, form.vendaCalca, { form = form.copy(vendaCalca = it) }, tamanhoExtra = form.tamanhoCalca, onTamanhoExtra = { form = form.copy(tamanhoCalca = it) }, labelTamanhoExtra = "Tam. Calça")
+                LocacaoItemRow(
+                    label = "Calça", tamanho = form.calca, onTamanho = { form = form.copy(calca = it) },
+                    isVenda = form.itensVenda.containsKey("calca"),
+                    onVenda = { c -> form = form.copy(itensVenda = if (c) form.itensVenda + ("calca" to "") else form.itensVenda - "calca") },
+                    vendaValor = form.itensVenda["calca"] ?: "",
+                    onVendaValor = { form = form.copy(itensVenda = form.itensVenda + ("calca" to it)) },
+                    tamanhoExtra = form.tamanhoCalca, onTamanhoExtra = { form = form.copy(tamanhoCalca = it) }, labelTamanhoExtra = "Tam. Calça",
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    VField("Camisa", form.camisa, { form = form.copy(camisa = it) }, modifier = Modifier.weight(1f))
-                    VField("Gravata", form.gravata, { form = form.copy(gravata = it) }, modifier = Modifier.weight(1f))
+                    ItemVendaField(
+                        label = "Camisa", value = form.camisa, onValue = { form = form.copy(camisa = it) },
+                        isVenda = form.itensVenda.containsKey("camisa"),
+                        onVenda = { c -> form = form.copy(itensVenda = if (c) form.itensVenda + ("camisa" to "") else form.itensVenda - "camisa") },
+                        vendaValor = form.itensVenda["camisa"] ?: "",
+                        onVendaValor = { form = form.copy(itensVenda = form.itensVenda + ("camisa" to it)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ItemVendaField(
+                        label = "Gravata", value = form.gravata, onValue = { form = form.copy(gravata = it) },
+                        isVenda = form.itensVenda.containsKey("gravata"),
+                        onVenda = { c -> form = form.copy(itensVenda = if (c) form.itensVenda + ("gravata" to "") else form.itensVenda - "gravata") },
+                        vendaValor = form.itensVenda["gravata"] ?: "",
+                        onVendaValor = { form = form.copy(itensVenda = form.itensVenda + ("gravata" to it)) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    VField("Cinto", form.cinto, { form = form.copy(cinto = it) }, modifier = Modifier.weight(1f))
-                    VField("Sapato", form.sapato, { form = form.copy(sapato = it) }, modifier = Modifier.weight(1f))
-                    VField("Abotoadura", form.abotoadura, { form = form.copy(abotoadura = it) }, modifier = Modifier.weight(1f))
+                    ItemVendaField(
+                        label = "Cinto", value = form.cinto, onValue = { form = form.copy(cinto = it) },
+                        isVenda = form.itensVenda.containsKey("cinto"),
+                        onVenda = { c -> form = form.copy(itensVenda = if (c) form.itensVenda + ("cinto" to "") else form.itensVenda - "cinto") },
+                        vendaValor = form.itensVenda["cinto"] ?: "",
+                        onVendaValor = { form = form.copy(itensVenda = form.itensVenda + ("cinto" to it)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ItemVendaField(
+                        label = "Sapato", value = form.sapato, onValue = { form = form.copy(sapato = it) },
+                        isVenda = form.itensVenda.containsKey("sapato"),
+                        onVenda = { c -> form = form.copy(itensVenda = if (c) form.itensVenda + ("sapato" to "") else form.itensVenda - "sapato") },
+                        vendaValor = form.itensVenda["sapato"] ?: "",
+                        onVendaValor = { form = form.copy(itensVenda = form.itensVenda + ("sapato" to it)) },
+                        modifier = Modifier.weight(1f),
+                    )
+                    ItemVendaField(
+                        label = "Abotoadura", value = form.abotoadura, onValue = { form = form.copy(abotoadura = it) },
+                        isVenda = form.itensVenda.containsKey("abotoadura"),
+                        onVenda = { c -> form = form.copy(itensVenda = if (c) form.itensVenda + ("abotoadura" to "") else form.itensVenda - "abotoadura") },
+                        vendaValor = form.itensVenda["abotoadura"] ?: "",
+                        onVendaValor = { form = form.copy(itensVenda = form.itensVenda + ("abotoadura" to it)) },
+                        modifier = Modifier.weight(1f),
+                    )
                 }
             }
 
@@ -1910,19 +2012,79 @@ fun LocacaoItemRow(
     onTamanho: (String) -> Unit,
     isVenda: Boolean,
     onVenda: (Boolean) -> Unit,
+    vendaValor: String = "",
+    onVendaValor: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier.fillMaxWidth(),
     tamanhoExtra: String? = null,
     onTamanhoExtra: ((String) -> Unit)? = null,
     labelTamanhoExtra: String? = null,
 ) {
-    Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
-        VField(label, tamanho, onTamanho, modifier = Modifier.weight(1f))
-        if (tamanhoExtra != null && onTamanhoExtra != null && labelTamanhoExtra != null) {
-            VField(labelTamanhoExtra, tamanhoExtra, onTamanhoExtra, modifier = Modifier.weight(1f))
+    Column(modifier = modifier) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+            VField(label, tamanho, onTamanho, modifier = Modifier.weight(1f))
+            if (tamanhoExtra != null && onTamanhoExtra != null && labelTamanhoExtra != null) {
+                VField(labelTamanhoExtra, tamanhoExtra, onTamanhoExtra, modifier = Modifier.weight(1f))
+            }
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(bottom = 4.dp)) {
+                Text("Venda", fontSize = 10.sp, color = Gray500)
+                Checkbox(checked = isVenda, onCheckedChange = onVenda, modifier = Modifier.size(24.dp))
+            }
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(bottom = 4.dp)) {
-            Text("Venda", fontSize = 10.sp, color = Gray500)
-            Checkbox(checked = isVenda, onCheckedChange = onVenda, modifier = Modifier.size(24.dp))
+        if (isVenda && onVendaValor != null) {
+            OutlinedTextField(
+                value = vendaValor,
+                onValueChange = onVendaValor,
+                label = { Text("Valor de venda (R$)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = Green600,
+                    focusedBorderColor = Green600,
+                    unfocusedContainerColor = Green100,
+                    focusedContainerColor = Green100,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+fun ItemVendaField(
+    label: String,
+    value: String,
+    onValue: (String) -> Unit,
+    isVenda: Boolean,
+    onVenda: (Boolean) -> Unit,
+    vendaValor: String,
+    onVendaValor: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+            VField(label, value, onValue, modifier = Modifier.weight(1f))
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(bottom = 4.dp)) {
+                Text("Venda", fontSize = 10.sp, color = Gray500)
+                Checkbox(checked = isVenda, onCheckedChange = onVenda, modifier = Modifier.size(24.dp))
+            }
+        }
+        if (isVenda) {
+            OutlinedTextField(
+                value = vendaValor,
+                onValueChange = onVendaValor,
+                label = { Text("Valor de venda (R$)") },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                shape = RoundedCornerShape(10.dp),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Next),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = Green600,
+                    focusedBorderColor = Green600,
+                    unfocusedContainerColor = Green100,
+                    focusedContainerColor = Green100,
+                ),
+            )
         }
     }
 }
