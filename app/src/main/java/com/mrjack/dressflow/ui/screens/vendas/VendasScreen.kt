@@ -1067,17 +1067,17 @@ fun LocacaoFormScreen(
     // Extra trajes (múltiplos trajes no mesmo registro)
     var extrasTraje by remember { mutableStateOf<List<TrajeExtra>>(emptyList()) }
 
-    // Auto-busca traje principal ao digitar
-    LaunchedEffect(form.traje) {
+    // Auto-busca apenas para vestido (F) — masculino é nome livre
+    LaunchedEffect(form.traje, form.sexo) {
+        if (form.sexo != "F") { trajeEncontrado = null; buscandoTraje = false; return@LaunchedEffect }
         if (form.traje.length >= 2) {
             delay(600)
             buscandoTraje = true
             vm.buscarTrajePorCodigo(form.traje.trim()) { t ->
-                trajeEncontrado = t
-                if (t != null) {
-                    val sexoNovo = if (t.tipo == "VESTIDO") "F" else "M"
+                trajeEncontrado = if (t?.tipo == "VESTIDO") t else null
+                if (t?.tipo == "VESTIDO") {
                     val precoBase = t.valorAluguel ?: t.valorVenda ?: ""
-                    form = form.copy(sexo = sexoNovo, valorBase = precoBase)
+                    form = form.copy(valorBase = precoBase)
                 }
                 buscandoTraje = false
             }
@@ -1323,14 +1323,18 @@ fun LocacaoFormScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = form.traje,
-                    onValueChange = { form = form.copy(traje = it.uppercase()) },
-                    label = { Text(if (form.sexo == "F") "Código do vestido *" else "Código do traje *") },
+                    onValueChange = { form = form.copy(traje = if (form.sexo == "F") it.uppercase() else it) },
+                    label = { Text(if (form.sexo == "F") "Código do vestido *" else "Traje *") },
+                    placeholder = { if (form.sexo == "M") Text("Ex: Smoking, Fraque") },
                     modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(10.dp),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters, imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = if (form.sexo == "F") KeyboardCapitalization.Characters else KeyboardCapitalization.Sentences,
+                        imeAction = ImeAction.Done,
+                    ),
                     trailingIcon = {
                         when {
-                            buscandoTraje -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                            trajeEncontrado != null -> Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16A34A))
+                            form.sexo == "F" && buscandoTraje -> CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                            form.sexo == "F" && trajeEncontrado != null -> Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16A34A))
                             else -> {}
                         }
                     },
@@ -1345,13 +1349,13 @@ fun LocacaoFormScreen(
                 }
             }
 
-            // Card do traje encontrado (M e F)
-            if (buscandoTraje) {
+            // Card do vestido encontrado (apenas F)
+            if (form.sexo == "F" && buscandoTraje) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp, color = Blue600)
-                    Text("Buscando traje...", fontSize = 12.sp, color = Gray500)
+                    Text("Buscando vestido...", fontSize = 12.sp, color = Gray500)
                 }
-            } else if (trajeEncontrado != null) {
+            } else if (form.sexo == "F" && trajeEncontrado != null) {
                 val t = trajeEncontrado!!
                 Surface(
                     shape = RoundedCornerShape(10.dp), color = Color(0xFFF0F9FF),
