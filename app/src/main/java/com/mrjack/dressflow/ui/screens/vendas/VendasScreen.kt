@@ -1685,16 +1685,20 @@ fun LocacaoFormScreen(
     }
 
     if (showPadronizacao) {
-        Dialog(onDismissRequest = { showPadronizacao = false }) {
-            Surface(shape = RoundedCornerShape(16.dp), color = Color.White) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Fazer Padronização", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                    Text("Para criar uma padronização, acesse a aba Padronizações no menu principal.", fontSize = 14.sp, color = Gray700)
-                    Button(onClick = { showPadronizacao = false }, modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(containerColor = Blue600), shape = RoundedCornerShape(8.dp)) {
-                        Text("Entendido")
-                    }
-                }
+        Dialog(
+            onDismissRequest = { showPadronizacao = false },
+            properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = Color.White,
+            ) {
+                com.mrjack.dressflow.ui.screens.padronizacoes.NovaPadronizacaoScreen(
+                    vm = androidx.lifecycle.viewmodel.compose.viewModel(),
+                    nomeEventoInicial = form.evento,
+                    dataEventoInicial = form.dataEvento,
+                    onFechar = { showPadronizacao = false },
+                )
             }
         }
     }

@@ -804,6 +804,8 @@ fun fmtData(dateStr: String?): String {
 fun NovaPadronizacaoScreen(
     vm: PadronizacoesViewModel,
     padronizacao: Padronizacao? = null,
+    nomeEventoInicial: String = "",
+    dataEventoInicial: String = "",
     onFechar: () -> Unit,
 ) {
     val isEditing  = padronizacao != null
@@ -814,8 +816,8 @@ fun NovaPadronizacaoScreen(
     val vendedores by vm.vendedores.collectAsState()
     val currentVId by vm.currentVendedorId.collectAsState()
 
-    var nomeEvento     by remember { mutableStateOf("") }
-    var dataEvento     by remember { mutableStateOf("") }
+    var nomeEvento     by remember { mutableStateOf(nomeEventoInicial) }
+    var dataEvento     by remember { mutableStateOf(dataEventoInicial) }
     var tipo           by remember { mutableStateOf("CASAMENTO") }
     var consultorId    by remember { mutableStateOf<Int?>(null) }
     var ativo          by remember { mutableStateOf(true) }
