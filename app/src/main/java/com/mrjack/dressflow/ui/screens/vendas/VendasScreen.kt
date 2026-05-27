@@ -203,6 +203,7 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
             "vendaPaleto"      to if (form.vendaPaleto) true else null,
             "vendaColete"      to if (form.vendaColete) true else null,
             "vendaCalca"       to if (form.vendaCalca) true else null,
+            "itensLocados"     to form.itensLocados,
         ).forEach { (k, v) -> if (v != null && v.toString().isNotBlank()) m[k] = v }
         return m
     }
@@ -264,6 +265,7 @@ data class LocacaoForm(
     var vendaPaleto: Boolean = false,
     var vendaColete: Boolean = false,
     var vendaCalca: Boolean = false,
+    var itensLocados: String = "",
 )
 
 fun Locacao.toForm() = LocacaoForm(
@@ -995,7 +997,30 @@ data class TrajeExtra(
     val sexo: String = "M",
     val valorBase: String = "",
     val desconto: String = "0",
-    val trajeInfo: Traje? = null,
+    // Masculino - itens locados e tamanhos
+    val itensLocados: List<String> = emptyList(),
+    val tamanhoPaleto: String = "",
+    val tamanhoManga: String = "",
+    val tamanhoColete: String = "",
+    val calca: String = "",
+    val tamanhoCalca: String = "",
+    val camisa: String = "",
+    val gravata: String = "",
+    val cinto: String = "",
+    val sapato: String = "",
+    val abotoadura: String = "",
+    // Medidas corporais (M)
+    val torax: String = "",
+    val abdomen: String = "",
+    val quadril: String = "",
+    val panturrilha: String = "",
+    // Medidas corporais (F)
+    val busto: String = "",
+    val cintura: String = "",
+    // Geral
+    val ajustes: String = "",
+    val menorDeIdade: Boolean = false,
+    val nomeResponsavel: String = "",
 )
 
 // ─── Formulário Nova / Edição de Locação ──────────────────────────────────────
@@ -1130,15 +1155,36 @@ fun LocacaoFormScreen(
                         // Criar extras sequencialmente
                         if (extrasTraje.isNotEmpty()) {
                             extrasTraje.forEach { extra ->
+                                val extraValor = run {
+                                    val b = extra.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
+                                    val d = extra.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
+                                    if (b > 0) String.format(java.util.Locale.US, "%.2f", b * (1.0 - d / 100.0)) else extra.valorBase
+                                }
                                 val extraForm = formFinal.copy(
                                     traje = extra.traje,
                                     sexo = extra.sexo,
                                     valorBase = extra.valorBase,
-                                    valor = run {
-                                        val b = extra.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
-                                        val d = extra.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
-                                        if (b > 0) String.format(java.util.Locale.US, "%.2f", b * (1.0 - d / 100.0)) else extra.valorBase
-                                    },
+                                    valor = extraValor,
+                                    tamanhoPaleto = extra.tamanhoPaleto,
+                                    tamanhoManga = extra.tamanhoManga,
+                                    tamanhoColete = extra.tamanhoColete,
+                                    calca = extra.calca,
+                                    tamanhoCalca = extra.tamanhoCalca,
+                                    camisa = extra.camisa,
+                                    gravata = extra.gravata,
+                                    cinto = extra.cinto,
+                                    sapato = extra.sapato,
+                                    abotoadura = extra.abotoadura,
+                                    torax = extra.torax,
+                                    abdomen = extra.abdomen,
+                                    quadril = extra.quadril,
+                                    panturrilha = extra.panturrilha,
+                                    busto = extra.busto,
+                                    cintura = extra.cintura,
+                                    ajustes = extra.ajustes,
+                                    menorDeIdade = extra.menorDeIdade,
+                                    nomeResponsavel = extra.nomeResponsavel,
+                                    itensLocados = extra.itensLocados.joinToString(","),
                                 )
                                 vm.salvarLocacao(extraForm) {}
                             }
@@ -1514,6 +1560,7 @@ fun LocacaoFormScreen(
                 extrasTraje.forEachIndexed { idx, extra ->
                     TrajeExtraCard(
                         extra = extra,
+                        index = idx,
                         vm = vm,
                         onUpdate = { extrasTraje = extrasTraje.toMutableList().also { it[idx] = extra } },
                         onRemover = { extrasTraje = extrasTraje.toMutableList().also { it.removeAt(idx) } },
@@ -1654,24 +1701,43 @@ fun LocacaoFormScreen(
 @Composable
 fun TrajeExtraCard(
     extra: TrajeExtra,
+    index: Int = 0,
     vm: VendasViewModel,
     onUpdate: () -> Unit,
     onRemover: () -> Unit,
     onChanged: (TrajeExtra) -> Unit,
 ) {
+    val titulo = if (extra.sexo == "F") "Vestido ${index + 2}" else "Traje ${index + 2}"
     Surface(color = Gray50, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Gray200), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+            // ── Título + remover
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Traje extra", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(titulo, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Gray700, modifier = Modifier.weight(1f))
                 IconButton(onClick = onRemover, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Default.Close, null, tint = Red500, modifier = Modifier.size(18.dp))
                 }
             }
+
+            // ── Menor de Idade
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Checkbox(checked = extra.menorDeIdade, onCheckedChange = { onChanged(extra.copy(menorDeIdade = it, nomeResponsavel = if (!it) "" else extra.nomeResponsavel)) }, modifier = Modifier.size(20.dp))
+                Text("Menor de Idade", fontSize = 12.sp, color = Gray700)
+            }
+            if (extra.menorDeIdade) {
+                OutlinedTextField(value = extra.nomeResponsavel, onValueChange = { onChanged(extra.copy(nomeResponsavel = it)) },
+                    label = { Text("Nome do responsável (pai/mãe)") }, modifier = Modifier.fillMaxWidth(),
+                    singleLine = true, shape = RoundedCornerShape(8.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words))
+            }
+
+            // ── Traje + Sexo
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = extra.traje,
                     onValueChange = { onChanged(extra.copy(traje = it)) },
-                    label = { Text("Traje") },
+                    label = { Text(if (extra.sexo == "F") "Código do vestido" else "Traje") },
+                    placeholder = { Text(if (extra.sexo == "F") "Ex: V002, V-103" else "Ex: Smoking, Fraque") },
                     modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 )
@@ -1681,10 +1747,125 @@ fun TrajeExtraCard(
                     }
                 }
             }
+
+            // ── Campos específicos do masculino
+            if (extra.sexo == "M") {
+                // Itens locados
+                Text("ITENS LOCADOS", fontSize = 10.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    listOf("PALETO" to "Paletó", "COLETE" to "Colete", "CALCA" to "Calça").forEach { (key, label) ->
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Checkbox(
+                                checked = extra.itensLocados.contains(key),
+                                onCheckedChange = { checked ->
+                                    val next = if (checked) extra.itensLocados + key else extra.itensLocados - key
+                                    onChanged(extra.copy(itensLocados = next))
+                                },
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(label, fontSize = 12.sp, color = Gray700)
+                        }
+                    }
+                }
+
+                // Paletó
+                if (extra.itensLocados.contains("PALETO")) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = extra.tamanhoPaleto, onValueChange = { onChanged(extra.copy(tamanhoPaleto = it)) },
+                            label = { Text("Paletó") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                            placeholder = { Text("Ex: 50, G") })
+                        OutlinedTextField(value = extra.tamanhoManga, onValueChange = { onChanged(extra.copy(tamanhoManga = it)) },
+                            label = { Text("Manga") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                            placeholder = { Text("Ex: 65, M") })
+                    }
+                }
+
+                // Colete
+                if (extra.itensLocados.contains("COLETE")) {
+                    OutlinedTextField(value = extra.tamanhoColete, onValueChange = { onChanged(extra.copy(tamanhoColete = it)) },
+                        label = { Text("Colete") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        placeholder = { Text("Ex: 50, G") })
+                }
+
+                // Calça
+                if (extra.itensLocados.contains("CALCA")) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedTextField(value = extra.calca, onValueChange = { onChanged(extra.copy(calca = it)) },
+                            label = { Text("Calça") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                            placeholder = { Text("Ex: Social") })
+                        OutlinedTextField(value = extra.tamanhoCalca, onValueChange = { onChanged(extra.copy(tamanhoCalca = it)) },
+                            label = { Text("Tam. calça") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                            placeholder = { Text("Ex: 42") })
+                    }
+                }
+
+                // Outros acessórios
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = extra.camisa, onValueChange = { onChanged(extra.copy(camisa = it)) },
+                        label = { Text("Camisa") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        placeholder = { Text("Ex: 42, G") })
+                    OutlinedTextField(value = extra.gravata, onValueChange = { onChanged(extra.copy(gravata = it)) },
+                        label = { Text("Gravata") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        placeholder = { Text("Ex: Borboleta") })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = extra.cinto, onValueChange = { onChanged(extra.copy(cinto = it)) },
+                        label = { Text("Cinto") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        placeholder = { Text("Ex: 90") })
+                    OutlinedTextField(value = extra.sapato, onValueChange = { onChanged(extra.copy(sapato = it)) },
+                        label = { Text("Sapato") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        placeholder = { Text("Ex: 42") })
+                }
+                OutlinedTextField(value = extra.abotoadura, onValueChange = { onChanged(extra.copy(abotoadura = it)) },
+                    label = { Text("Abotoadura") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                    placeholder = { Text("Ex: Prata") })
+
+                // Medidas corporais (M)
+                Text("MEDIDAS CORPORAIS", fontSize = 10.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = extra.torax, onValueChange = { onChanged(extra.copy(torax = it)) },
+                        label = { Text("Tórax (cm)") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), placeholder = { Text("Ex: 96") })
+                    OutlinedTextField(value = extra.abdomen, onValueChange = { onChanged(extra.copy(abdomen = it)) },
+                        label = { Text("Abdômen (cm)") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), placeholder = { Text("Ex: 90") })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = extra.quadril, onValueChange = { onChanged(extra.copy(quadril = it)) },
+                        label = { Text("Quadril (cm)") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), placeholder = { Text("Ex: 98") })
+                    OutlinedTextField(value = extra.panturrilha, onValueChange = { onChanged(extra.copy(panturrilha = it)) },
+                        label = { Text("Panturrilha (cm)") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), placeholder = { Text("Ex: 38") })
+                }
+            }
+
+            // ── Campos específicos do feminino
+            if (extra.sexo == "F") {
+                Text("MEDIDAS CORPORAIS", fontSize = 10.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(value = extra.busto, onValueChange = { onChanged(extra.copy(busto = it)) },
+                        label = { Text("Busto (cm)") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), placeholder = { Text("Ex: 90") })
+                    OutlinedTextField(value = extra.cintura, onValueChange = { onChanged(extra.copy(cintura = it)) },
+                        label = { Text("Cintura (cm)") }, modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), placeholder = { Text("Ex: 70") })
+                }
+                OutlinedTextField(value = extra.quadril, onValueChange = { onChanged(extra.copy(quadril = it)) },
+                    label = { Text("Quadril (cm)") }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), placeholder = { Text("Ex: 98") })
+            }
+
+            // ── Ajustes
+            OutlinedTextField(value = extra.ajustes, onValueChange = { onChanged(extra.copy(ajustes = it)) },
+                label = { Text("Ajustes") }, modifier = Modifier.fillMaxWidth(),
+                minLines = 2, shape = RoundedCornerShape(8.dp))
+
+            // ── Valor
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = extra.valorBase, onValueChange = { onChanged(extra.copy(valorBase = it)) },
-                    label = { Text("Valor base (R$)") }, modifier = Modifier.weight(1f),
+                    label = { Text("Valor (R$)") }, modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true, shape = RoundedCornerShape(8.dp),
                 )
@@ -1694,6 +1875,19 @@ fun TrajeExtraCard(
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true, shape = RoundedCornerShape(8.dp),
                 )
+            }
+
+            // ── Valor final
+            val valorFinalExtra = run {
+                val b = extra.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
+                val d = extra.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
+                if (b > 0) b * (1.0 - d / 100.0) else 0.0
+            }
+            if (valorFinalExtra > 0) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    Text("Valor final: ", fontSize = 12.sp, color = Gray500)
+                    Text("R$ ${"%.2f".format(valorFinalExtra).replace(".", ",")}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = Gray900)
+                }
             }
         }
     }

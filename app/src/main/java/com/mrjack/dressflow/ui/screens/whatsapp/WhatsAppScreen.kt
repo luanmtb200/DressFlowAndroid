@@ -2,13 +2,16 @@ package com.mrjack.dressflow.ui.screens.whatsapp
 
 import android.app.Application
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -194,7 +197,7 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
             isLoadingMsgs.value = true
             try {
                 val data = api.listarMensagensWa(chat.id, 60).body() ?: emptyList()
-                mensagens.value = data.sortedBy { it.timestamp }
+                mensagens.value = data.sortedBy { it.timestamp }.distinctBy { it.id.ifBlank { "${it.timestamp}-${it.fromMe}" } }
             } catch (e: Exception) { erro.value = e.message }
             finally { isLoadingMsgs.value = false }
         }
@@ -247,7 +250,7 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
                 delay(8000)
                 try {
                     val data = api.listarMensagensWa(chatId, 60).body() ?: continue
-                    val ordenado = data.sortedBy { it.timestamp }
+                    val ordenado = data.sortedBy { it.timestamp }.distinctBy { it.id.ifBlank { "${it.timestamp}-${it.fromMe}" } }
                     if (ordenado.size != mensagens.value.size ||
                         ordenado.lastOrNull()?.id != mensagens.value.lastOrNull()?.id) {
                         mensagens.value = ordenado
@@ -277,6 +280,30 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
                     type = "chat", hasMedia = false, filename = null,
                 )
                 mensagens.value = mensagens.value + fakeMsg
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSending.value = false }
+        }
+    }
+
+    fun enviarMidia(chatId: String, context: android.content.Context, uris: List<android.net.Uri>) {
+        viewModelScope.launch {
+            isSending.value = true
+            try {
+                uris.forEach { uri ->
+                    val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: return@forEach
+                    val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    val name = uri.lastPathSegment ?: "arquivo"
+                    api.enviarMidiaWa(mapOf("chatId" to chatId, "data" to b64, "mimetype" to mime, "filename" to name))
+                    val fakeMsg = WaMensagem(
+                        id = "local-img-${System.currentTimeMillis()}",
+                        body = null, fromMe = true,
+                        timestamp = System.currentTimeMillis() / 1000,
+                        type = if (mime.startsWith("image")) "image" else "document",
+                        hasMedia = true, filename = name,
+                    )
+                    mensagens.value = mensagens.value + fakeMsg
+                }
             } catch (e: Exception) { erro.value = e.message }
             finally { isSending.value = false }
         }
@@ -423,7 +450,7 @@ fun ListaChats(vm: WhatsAppViewModel) {
             }
         } else {
             LazyColumn(Modifier.weight(1f)) {
-                items(chats, key = { it.id }) { c ->
+                itemsIndexed(chats) { _, c ->
                     ChatItem(c, vm) { vm.abrirChat(c) }
                     HorizontalDivider(color = Color(0xFFEEEEEE))
                 }
@@ -554,14 +581,14 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
     val listState    = rememberLazyListState()
     var quickReply   by remember { mutableStateOf("") }
     var showAgendar  by remember { mutableStateOf(false) }
-
-    LaunchedEffect(msgs.size) {
-        if (msgs.isNotEmpty()) listState.animateScrollToItem(msgs.size - 1)
+    val context      = LocalContext.current
+    val pickImages   = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) vm.enviarMidia(chat.id, context, uris)
     }
 
-    // Agrupa mensagens por data
+    // Agrupa mensagens por data — deve ficar antes do LaunchedEffect
     val grupos = remember(msgs) {
-        val result = mutableListOf<Pair<String?, WaMensagem>>() // null key = separator
+        val result = mutableListOf<Pair<String?, WaMensagem>>()
         var lastDate = ""
         for (m in msgs) {
             val dateKey = fmtData(m.timestamp)
@@ -572,6 +599,12 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
             result.add(null to m)
         }
         result
+    }
+
+    LaunchedEffect(grupos.size) {
+        if (grupos.isNotEmpty()) {
+            try { listState.animateScrollToItem(grupos.size - 1) } catch (_: Exception) {}
+        }
     }
 
     if (showAgendar) {
@@ -665,7 +698,7 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
                 verticalArrangement = Arrangement.spacedBy(2.dp),
                 contentPadding = PaddingValues(vertical = 10.dp),
             ) {
-                items(grupos, key = { it.second.id }) { (isSep, msg) ->
+                itemsIndexed(grupos) { _, (isSep, msg) ->
                     if (isSep != null) {
                         // Separador de data
                         Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
@@ -713,6 +746,13 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
                 verticalAlignment = Alignment.Bottom,
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                IconButton(
+                    onClick = { pickImages.launch("image/*") },
+                    enabled = !isSending && statusWa == "WORKING",
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(Icons.Default.AttachFile, null, tint = if (statusWa == "WORKING") Color(0xFF128C7E) else Gray500)
+                }
                 OutlinedTextField(
                     value = texto,
                     onValueChange = { texto = it },

@@ -166,6 +166,9 @@ interface ApiService {
     @POST("whatsapp/enviar")
     suspend fun enviarMensagemWa(@Body body: Map<String, String>): Response<Any>
 
+    @POST("whatsapp/enviar-midia")
+    suspend fun enviarMidiaWa(@Body body: Map<String, @JvmSuppressWildcards String?>): Response<Any>
+
     @GET("whatsapp/labels/map")
     suspend fun listarLabels(): Response<Map<String, List<EtiquetaWa>>>
 
