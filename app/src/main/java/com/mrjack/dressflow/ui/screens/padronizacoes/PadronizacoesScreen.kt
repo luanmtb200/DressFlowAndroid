@@ -9,11 +9,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.window.Dialog
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -87,6 +91,7 @@ class PadronizacoesViewModel(app: Application) : AndroidViewModel(app) {
     val isSaving         = MutableStateFlow(false)
     val isSavingTrajePad = MutableStateFlow(false)
     val criando          = MutableStateFlow(false)
+    val editando         = MutableStateFlow<Padronizacao?>(null)
     val erro             = MutableStateFlow<String?>(null)
     val sucesso          = MutableStateFlow<String?>(null)
     val isDownloadingPdf = MutableStateFlow(false)
@@ -147,6 +152,25 @@ class PadronizacoesViewModel(app: Application) : AndroidViewModel(app) {
                 if (resp.isSuccessful) {
                     sucesso.value = "Padronização criada!"
                     criando.value = false
+                    carregar()
+                    onSuccess()
+                } else {
+                    erro.value = "Erro ${resp.code()}"
+                }
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSaving.value = false }
+        }
+    }
+
+    fun atualizarPadronizacaoCompleta(id: Int, body: Map<String, Any?>, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            isSaving.value = true
+            erro.value = null
+            try {
+                val resp = api.atualizarPadronizacao(id, body)
+                if (resp.isSuccessful) {
+                    sucesso.value = "Padronização atualizada!"
+                    editando.value = null
                     carregar()
                     onSuccess()
                 } else {
@@ -263,6 +287,7 @@ fun PadronizacoesScreen(vm: PadronizacoesViewModel = viewModel()) {
     val isLoading    by vm.isLoading.collectAsState()
     val erro         by vm.erro.collectAsState()
     val criando      by vm.criando.collectAsState()
+    val editando     by vm.editando.collectAsState()
     val sucesso      by vm.sucesso.collectAsState()
     val isLoadingDet by vm.isLoadingDetalhe.collectAsState()
     val isDownloadingPdf by vm.isDownloadingPdf.collectAsState()
@@ -274,7 +299,12 @@ fun PadronizacoesScreen(vm: PadronizacoesViewModel = viewModel()) {
     }
 
     if (criando) {
-        NovaPadronizacaoScreen(vm) { vm.criando.value = false }
+        NovaPadronizacaoScreen(vm, padronizacao = null) { vm.criando.value = false }
+        return
+    }
+
+    if (editando != null) {
+        NovaPadronizacaoScreen(vm, padronizacao = editando) { vm.editando.value = null }
         return
     }
 
@@ -286,6 +316,7 @@ fun PadronizacoesScreen(vm: PadronizacoesViewModel = viewModel()) {
             onBack = { vm.fecharDetalhe() },
             onIncrementar = { delta -> vm.incrementarPadrinhos(detalhe!!.id, delta) },
             onBaixarPdf = { context, callback -> vm.baixarPdf(detalhe!!.id, context, callback) },
+            onEditar = { vm.editando.value = detalhe },
         )
         return
     }
@@ -557,6 +588,7 @@ fun PadronizacaoDetalheScreen(
     onBack: () -> Unit,
     onIncrementar: (Int) -> Unit,
     onBaixarPdf: (Context, (android.net.Uri?) -> Unit) -> Unit = { _, _ -> },
+    onEditar: () -> Unit = {},
 ) {
     val tipo = p.tipo ?: p.tipoEvento ?: "OUTRO"
     val isFormatura = tipo in TIPOS_FORMATURA
@@ -568,6 +600,16 @@ fun PadronizacaoDetalheScreen(
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onBack) { Text("← Voltar") }
                 Text(p.nomeEvento ?: "Padronização #${p.id}", fontWeight = FontWeight.Bold, fontSize = 17.sp, color = Gray900, modifier = Modifier.weight(1f))
+                OutlinedButton(
+                    onClick = onEditar,
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Editar", fontSize = 13.sp)
+                }
+                Spacer(Modifier.width(4.dp))
                 OutlinedButton(
                     onClick = {
                         onBaixarPdf(context) { uri ->
@@ -755,78 +797,102 @@ fun fmtData(dateStr: String?): String {
     } catch (_: Exception) { dateStr }
 }
 
-// ─── Nova Padronização ────────────────────────────────────────────────────────
+// ─── Nova / Editar Padronização ───────────────────────────────────────────────
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
+fun NovaPadronizacaoScreen(
+    vm: PadronizacoesViewModel,
+    padronizacao: Padronizacao? = null,
+    onFechar: () -> Unit,
+) {
+    val isEditing  = padronizacao != null
+    val padId      = padronizacao?.id
     val isSaving   by vm.isSaving.collectAsState()
     val erro       by vm.erro.collectAsState()
     val trajesPad  by vm.trajesPad.collectAsState()
     val vendedores by vm.vendedores.collectAsState()
     val currentVId by vm.currentVendedorId.collectAsState()
 
-    // ── Campos básicos ────────────────────────────────────────────────────────
     var nomeEvento     by remember { mutableStateOf("") }
     var dataEvento     by remember { mutableStateOf("") }
     var tipo           by remember { mutableStateOf("CASAMENTO") }
     var consultorId    by remember { mutableStateOf<Int?>(null) }
     var ativo          by remember { mutableStateOf(true) }
-    // ── Noivos ───────────────────────────────────────────────────────────────
     var nomeNoivos     by remember { mutableStateOf("") }
     var telefoneNoivo  by remember { mutableStateOf("") }
     var telefoneNoiva  by remember { mutableStateOf("") }
     var dataLimite     by remember { mutableStateOf("") }
-    // ── Cerimonial ───────────────────────────────────────────────────────────
     var cerimonialNome by remember { mutableStateOf("") }
     var cerimonialTel  by remember { mutableStateOf("") }
-    // ── Participantes ─────────────────────────────────────────────────────────
-    var numPadrinhos    by remember { mutableStateOf("") }
-    var numMadrinhas    by remember { mutableStateOf("") }
-    var corVestido      by remember { mutableStateOf("") }
-    // ── Traje Padrinhos ───────────────────────────────────────────────────────
-    var trajePadIdPad   by remember { mutableStateOf<Int?>(null) }
-    var trajePadIdVest  by remember { mutableStateOf<Int?>(null) }
+    var numPadrinhos   by remember { mutableStateOf("") }
+    var numMadrinhas   by remember { mutableStateOf("") }
+    var corVestido     by remember { mutableStateOf("") }
+    var trajePadIdPad  by remember { mutableStateOf<Int?>(null) }
+    var trajePadIdVest by remember { mutableStateOf<Int?>(null) }
     var valorDeTrajoPad by remember { mutableStateOf("") }
-    var valorTrajoPad   by remember { mutableStateOf("") }
-    var padObrg         by remember { mutableStateOf("") }
-    var camisaPad       by remember { mutableStateOf("") }
+    var valorTrajoPad  by remember { mutableStateOf("") }
+    var padObrg        by remember { mutableStateOf("") }
+    var camisaPad      by remember { mutableStateOf("") }
     var valorDeCamisaPad by remember { mutableStateOf("") }
-    var valorCamisaPad  by remember { mutableStateOf("") }
-    var sapatoPad       by remember { mutableStateOf("") }
+    var valorCamisaPad by remember { mutableStateOf("") }
+    var sapatoPad      by remember { mutableStateOf("") }
     var valorDeSapatoPad by remember { mutableStateOf("") }
-    var valorSapatoPad  by remember { mutableStateOf("") }
-    var opcional3       by remember { mutableStateOf("") }
-    var valorDeOpc3     by remember { mutableStateOf("") }
-    var valorOpc3       by remember { mutableStateOf("") }
-    // ── Traje Pais / Premium ─────────────────────────────────────────────────
-    var trajeNomePais      by remember { mutableStateOf("") }
-    var opcIntermPais      by remember { mutableStateOf("") }
-    var valorDeIntermPais   by remember { mutableStateOf("") }
-    var valorIntermPais     by remember { mutableStateOf("") }
-    var opcPremiumPais      by remember { mutableStateOf("") }
-    var valorDePremiumPais  by remember { mutableStateOf("") }
-    var valorPremiumPais    by remember { mutableStateOf("") }
-    var opcColetePais       by remember { mutableStateOf("") }
-    var valorDeColetePais   by remember { mutableStateOf("") }
-    var valorColetePais     by remember { mutableStateOf("") }
-    var camisaPais          by remember { mutableStateOf("") }
-    var valorDeCamisaPais   by remember { mutableStateOf("") }
-    var valorCamisaPais     by remember { mutableStateOf("") }
-    var sapatoPais          by remember { mutableStateOf("") }
-    var valorDeSapatoPais   by remember { mutableStateOf("") }
-    var valorSapatoPais     by remember { mutableStateOf("") }
-    // ── Pagens ────────────────────────────────────────────────────────────────
-    var trajeCompletoPagem  by remember { mutableStateOf("") }
-    var valorDeTrajePagem   by remember { mutableStateOf("") }
-    var valorTrajePagem     by remember { mutableStateOf("") }
-    // ── Dropdowns ─────────────────────────────────────────────────────────────
-    var tipoExpanded        by remember { mutableStateOf(false) }
-    var consultorExpanded   by remember { mutableStateOf(false) }
-    var padExpanded         by remember { mutableStateOf(false) }
-    var vestExpanded        by remember { mutableStateOf(false) }
+    var valorSapatoPad by remember { mutableStateOf("") }
+    var opcional3      by remember { mutableStateOf("") }
+    var valorDeOpc3    by remember { mutableStateOf("") }
+    var valorOpc3      by remember { mutableStateOf("") }
+    var trajeNomePais  by remember { mutableStateOf("") }
+    var opcIntermPais  by remember { mutableStateOf("") }
+    var valorDeIntermPais by remember { mutableStateOf("") }
+    var valorIntermPais by remember { mutableStateOf("") }
+    var opcPremiumPais by remember { mutableStateOf("") }
+    var valorDePremiumPais by remember { mutableStateOf("") }
+    var valorPremiumPais by remember { mutableStateOf("") }
+    var opcColetePais  by remember { mutableStateOf("") }
+    var valorDeColetePais by remember { mutableStateOf("") }
+    var valorColetePais by remember { mutableStateOf("") }
+    var camisaPais     by remember { mutableStateOf("") }
+    var valorDeCamisaPais by remember { mutableStateOf("") }
+    var valorCamisaPais by remember { mutableStateOf("") }
+    var sapatoPais     by remember { mutableStateOf("") }
+    var valorDeSapatoPais by remember { mutableStateOf("") }
+    var valorSapatoPais by remember { mutableStateOf("") }
+    var trajeCompletoPagem by remember { mutableStateOf("") }
+    var valorDeTrajePagem by remember { mutableStateOf("") }
+    var valorTrajePagem by remember { mutableStateOf("") }
+    var tipoExpanded   by remember { mutableStateOf(false) }
+    var consultorExpanded by remember { mutableStateOf(false) }
+    var showGaleriaPad by remember { mutableStateOf(false) }
+    var showGaleriaVest by remember { mutableStateOf(false) }
 
-    LaunchedEffect(currentVId) { if (consultorId == null) consultorId = currentVId }
+    // Pre-fill quando editando
+    LaunchedEffect(padronizacao) {
+        if (padronizacao != null) {
+            nomeEvento    = padronizacao.nomeEvento ?: ""
+            dataEvento    = padronizacao.dataEvento.take(10)
+            tipo          = padronizacao.tipo ?: padronizacao.tipoEvento ?: "CASAMENTO"
+            ativo         = padronizacao.ativo != false
+            consultorId   = padronizacao.consultor?.id ?: padronizacao.vendedor?.id
+            nomeNoivos    = padronizacao.nomeNoivos ?: ""
+            telefoneNoivo = padronizacao.telefoneNoivo ?: ""
+            telefoneNoiva = padronizacao.telefoneNoiva ?: ""
+            cerimonialNome = padronizacao.cerimonialNome ?: ""
+            cerimonialTel = padronizacao.cerimonialTelefone ?: ""
+            numPadrinhos  = padronizacao.numeroPadrinhos?.toString() ?: ""
+            numMadrinhas  = padronizacao.numeroMadrinhas?.toString() ?: ""
+            corVestido    = padronizacao.corVestidoMadrinhas ?: ""
+            trajePadIdPad = padronizacao.trajePadrinhos?.id
+            trajePadIdVest = padronizacao.trajeVestido?.id
+            valorTrajoPad = padronizacao.valorTrajePadrinhos ?: ""
+            trajeNomePais = padronizacao.trajeNomePais ?: ""
+            valorIntermPais = padronizacao.valorTrajePais ?: ""
+            trajeCompletoPagem = padronizacao.trajeCompletoPagem ?: ""
+            valorTrajePagem = padronizacao.valorTrajePagem ?: ""
+        }
+    }
+
+    LaunchedEffect(currentVId) { if (consultorId == null && !isEditing) consultorId = currentVId }
 
     val isFormatura = tipo in TIPOS_FORMATURA
 
@@ -883,16 +949,42 @@ fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
         return m
     }
 
+    // Dialogs de galeria
+    if (showGaleriaPad) {
+        TrajeGaleriaDialog(
+            trajesPad = trajesPad,
+            selected = trajePadIdPad,
+            titulo = if (isFormatura) "Traje masculino (esquerda)" else "Traje dos padrinhos",
+            onSelect = { trajePadIdPad = it; showGaleriaPad = false },
+            onDismiss = { showGaleriaPad = false },
+        )
+    }
+    if (showGaleriaVest) {
+        TrajeGaleriaDialog(
+            trajesPad = trajesPad,
+            selected = trajePadIdVest,
+            titulo = if (isFormatura) "Traje feminino (direita)" else "Vestido das madrinhas",
+            onSelect = { trajePadIdVest = it; showGaleriaVest = false },
+            onDismiss = { showGaleriaVest = false },
+        )
+    }
+
     Column(Modifier.fillMaxSize()) {
         Surface(shadowElevation = 2.dp, color = Color.White) {
             Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onFechar) { Icon(Icons.Default.Close, null) }
-                Text("Nova padronização", fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
+                Text(
+                    if (isEditing) "Editar padronização" else "Nova padronização",
+                    fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f),
+                )
                 Button(
                     onClick = {
                         if (nomeEvento.isBlank()) { vm.erro.value = "Nome do evento obrigatório"; return@Button }
                         if (dataEvento.isBlank()) { vm.erro.value = "Data do evento obrigatória"; return@Button }
-                        vm.criarPadronizacao(buildBody()) {}
+                        if (isEditing && padId != null)
+                            vm.atualizarPadronizacaoCompleta(padId, buildBody()) {}
+                        else
+                            vm.criarPadronizacao(buildBody()) {}
                     },
                     enabled = !isSaving,
                     colors = ButtonDefaults.buttonColors(containerColor = Blue600),
@@ -931,7 +1023,6 @@ fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
                         }
                     }
                 }
-
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedTextField(
                         value = nomeEvento, onValueChange = { nomeEvento = it },
@@ -944,7 +1035,6 @@ fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
                         onDateSelected = { dataEvento = it }, modifier = Modifier.weight(1f),
                     )
                 }
-
                 Text("Consultor responsável", fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium)
                 ExposedDropdownMenuBox(expanded = consultorExpanded, onExpandedChange = { consultorExpanded = it }) {
                     OutlinedTextField(
@@ -961,7 +1051,6 @@ fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
                         }
                     }
                 }
-
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Switch(checked = ativo, onCheckedChange = { ativo = it }, colors = SwitchDefaults.colors(checkedThumbColor = Blue600, checkedTrackColor = Blue100))
                     Text(if (ativo) "Padronização ativa" else "Padronização inativa", fontSize = 13.sp, color = Gray700)
@@ -993,8 +1082,7 @@ fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
                 }
                 DatePickerField(
                     label = "Data limite p/ comparecer à loja",
-                    value = dataLimite,
-                    onDateSelected = { dataLimite = it },
+                    value = dataLimite, onDateSelected = { dataLimite = it },
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
@@ -1041,64 +1129,36 @@ fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
                 )
             }
 
-            // ── TRAJE PADRINHOS ────────────────────────────────────────────────
+            // ── TRAJE PADRINHOS — Gallery Picker ───────────────────────────────
             Surface(
                 color = Blue50, shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Blue200),
-                modifier = Modifier.fillMaxWidth(),
+                border = BorderStroke(1.dp, Blue200), modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         if (isFormatura) "TRAJE DOS FORMANDOS" else "TRAJE DOS PADRINHOS",
                         fontSize = 11.sp, color = Blue700, fontWeight = FontWeight.Bold,
                     )
-
                     Text(
                         if (isFormatura) "Traje masculino (foto esquerda)" else "Traje dos padrinhos (foto esquerda)",
                         fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium,
                     )
-                    ExposedDropdownMenuBox(expanded = padExpanded, onExpandedChange = { padExpanded = it }) {
-                        OutlinedTextField(
-                            value = trajesPad.find { it.id == trajePadIdPad }?.nome ?: "Selecione um traje...",
-                            onValueChange = {}, readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(padExpanded) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            shape = RoundedCornerShape(10.dp),
-                        )
-                        ExposedDropdownMenu(expanded = padExpanded, onDismissRequest = { padExpanded = false }) {
-                            DropdownMenuItem(text = { Text("Nenhum") }, onClick = { trajePadIdPad = null; padExpanded = false })
-                            trajesPad.forEach { t ->
-                                DropdownMenuItem(
-                                    text = { Text("${t.nome}${if (!t.valor.isNullOrBlank()) " (R$ ${t.valor})" else ""}") },
-                                    onClick = { trajePadIdPad = t.id; padExpanded = false }
-                                )
-                            }
-                        }
-                    }
-
+                    TrajeSelectorButton(
+                        traje = trajesPad.find { it.id == trajePadIdPad },
+                        placeholder = "Selecionar traje...",
+                        onClick = { showGaleriaPad = true },
+                        onClear = { trajePadIdPad = null },
+                    )
                     Text(
                         if (isFormatura) "Traje feminino (foto direita)" else "Vestido das madrinhas (foto direita)",
                         fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium,
                     )
-                    ExposedDropdownMenuBox(expanded = vestExpanded, onExpandedChange = { vestExpanded = it }) {
-                        OutlinedTextField(
-                            value = trajesPad.find { it.id == trajePadIdVest }?.nome ?: "Selecione um traje...",
-                            onValueChange = {}, readOnly = true,
-                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(vestExpanded) },
-                            modifier = Modifier.fillMaxWidth().menuAnchor(),
-                            shape = RoundedCornerShape(10.dp),
-                        )
-                        ExposedDropdownMenu(expanded = vestExpanded, onDismissRequest = { vestExpanded = false }) {
-                            DropdownMenuItem(text = { Text("Nenhum") }, onClick = { trajePadIdVest = null; vestExpanded = false })
-                            trajesPad.forEach { t ->
-                                DropdownMenuItem(
-                                    text = { Text("${t.nome}${if (!t.valor.isNullOrBlank()) " (R$ ${t.valor})" else ""}") },
-                                    onClick = { trajePadIdVest = t.id; vestExpanded = false }
-                                )
-                            }
-                        }
-                    }
-
+                    TrajeSelectorButton(
+                        traje = trajesPad.find { it.id == trajePadIdVest },
+                        placeholder = "Selecionar traje...",
+                        onClick = { showGaleriaVest = true },
+                        onClear = { trajePadIdVest = null },
+                    )
                     ValorDePor(
                         label = "Valor do traje obrigatório (R$)",
                         valorDe = valorDeTrajoPad, onDe = { valorDeTrajoPad = it },
@@ -1212,8 +1272,6 @@ fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
                         ValorDePor("Valor sapato (R$)", valorDeSapatoPais, { valorDeSapatoPais = it }, valorSapatoPais, { valorSapatoPais = it })
                     }
                 }
-
-                // ── PAJENS ────────────────────────────────────────────────────
                 Surface(
                     color = Green100, shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, Color(0xFFBBF7D0)), modifier = Modifier.fillMaxWidth(),
@@ -1232,6 +1290,125 @@ fun NovaPadronizacaoScreen(vm: PadronizacoesViewModel, onFechar: () -> Unit) {
             }
 
             Spacer(Modifier.height(24.dp))
+        }
+    }
+}
+
+// ─── Botão seletor de traje (substitui dropdown) ──────────────────────────────
+
+@Composable
+private fun TrajeSelectorButton(
+    traje: TrajePadronizacao?,
+    placeholder: String,
+    onClick: () -> Unit,
+    onClear: () -> Unit,
+) {
+    OutlinedCard(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, if (traje != null) Blue200 else Gray200),
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (traje != null) {
+                if (!traje.imagemUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = traje.imagemUrl, contentDescription = null,
+                        modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)),
+                        contentScale = ContentScale.Fit,
+                    )
+                } else {
+                    Box(
+                        Modifier.size(48.dp).background(Gray100, RoundedCornerShape(6.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.Default.Checkroom, null, tint = Gray500, modifier = Modifier.size(24.dp)) }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(traje.nome, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Blue700)
+                    if (!traje.valor.isNullOrBlank()) Text("R$ ${traje.valor}", fontSize = 11.sp, color = Blue600)
+                }
+                IconButton(onClick = onClear, modifier = Modifier.size(28.dp)) {
+                    Icon(Icons.Default.Close, null, tint = Gray500, modifier = Modifier.size(16.dp))
+                }
+            } else {
+                Icon(Icons.Default.Checkroom, null, tint = Gray500, modifier = Modifier.size(22.dp))
+                Text(placeholder, fontSize = 13.sp, color = Gray500, modifier = Modifier.weight(1f))
+                Icon(Icons.Default.KeyboardArrowDown, null, tint = Gray500)
+            }
+        }
+    }
+}
+
+// ─── Dialog galeria de trajes ─────────────────────────────────────────────────
+
+@Composable
+private fun TrajeGaleriaDialog(
+    trajesPad: List<TrajePadronizacao>,
+    selected: Int?,
+    titulo: String,
+    onSelect: (Int?) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(16.dp), color = Color.White,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Column(Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(titulo, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Gray900, modifier = Modifier.weight(1f))
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.Close, null, tint = Gray500)
+                    }
+                }
+                TextButton(
+                    onClick = { onSelect(null) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Nenhum", color = Red500) }
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 460.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 4.dp),
+                ) {
+                    items(trajesPad, key = { it.id }) { t ->
+                        val isSel = t.id == selected
+                        Card(
+                            onClick = { onSelect(t.id) },
+                            shape = RoundedCornerShape(10.dp),
+                            border = if (isSel) BorderStroke(2.dp, Blue600) else BorderStroke(1.dp, Gray200),
+                            colors = CardDefaults.cardColors(containerColor = if (isSel) Blue50 else Color.White),
+                            elevation = CardDefaults.cardElevation(if (isSel) 2.dp else 1.dp),
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (!t.imagemUrl.isNullOrBlank()) {
+                                    AsyncImage(
+                                        model = t.imagemUrl, contentDescription = t.nome,
+                                        modifier = Modifier.fillMaxWidth().height(110.dp),
+                                        contentScale = ContentScale.Fit,
+                                    )
+                                } else {
+                                    Box(
+                                        Modifier.fillMaxWidth().height(110.dp).background(Gray100),
+                                        contentAlignment = Alignment.Center,
+                                    ) { Icon(Icons.Default.Checkroom, null, tint = Gray500, modifier = Modifier.size(40.dp)) }
+                                }
+                                Column(Modifier.padding(8.dp)) {
+                                    Text(t.nome, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Gray900, maxLines = 2)
+                                    if (!t.valor.isNullOrBlank()) {
+                                        Text("R$ ${t.valor}", fontSize = 10.sp, color = Blue600, fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

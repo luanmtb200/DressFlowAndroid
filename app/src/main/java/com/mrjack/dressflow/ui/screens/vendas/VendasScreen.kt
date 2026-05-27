@@ -1659,24 +1659,6 @@ fun TrajeExtraCard(
     onRemover: () -> Unit,
     onChanged: (TrajeExtra) -> Unit,
 ) {
-    var trajeInfo by remember { mutableStateOf<Traje?>(extra.trajeInfo) }
-    var buscando  by remember { mutableStateOf(false) }
-
-    LaunchedEffect(extra.traje) {
-        if (extra.traje.length >= 2) {
-            delay(600)
-            buscando = true
-            vm.buscarTrajePorCodigo(extra.traje.trim()) { t ->
-                trajeInfo = t
-                if (t != null) {
-                    val precoBase = t.valorAluguel ?: t.valorVenda ?: ""
-                    onChanged(extra.copy(sexo = if (t.tipo == "VESTIDO") "F" else "M", valorBase = precoBase, trajeInfo = t))
-                }
-                buscando = false
-            }
-        }
-    }
-
     Surface(color = Gray50, shape = RoundedCornerShape(12.dp), border = BorderStroke(1.dp, Gray200), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1688,17 +1670,10 @@ fun TrajeExtraCard(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 OutlinedTextField(
                     value = extra.traje,
-                    onValueChange = { onChanged(extra.copy(traje = it.uppercase())) },
-                    label = { Text("Código") },
+                    onValueChange = { onChanged(extra.copy(traje = it)) },
+                    label = { Text("Traje") },
                     modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-                    trailingIcon = {
-                        when {
-                            buscando -> CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                            trajeInfo != null -> Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF16A34A))
-                            else -> {}
-                        }
-                    },
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf("M" to "M", "F" to "F").forEach { (v, label) ->
@@ -1706,24 +1681,10 @@ fun TrajeExtraCard(
                     }
                 }
             }
-            if (trajeInfo != null) {
-                val t = trajeInfo!!
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (!t.imagemUrl.isNullOrBlank()) {
-                        coil.compose.AsyncImage(model = t.imagemUrl, contentDescription = null,
-                            modifier = Modifier.size(48.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
-                    }
-                    Column {
-                        Text(t.nome, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = Blue700)
-                        val p = t.valorAluguel ?: t.valorVenda
-                        if (!p.isNullOrBlank()) Text("R$ $p", fontSize = 11.sp, color = Blue600)
-                    }
-                }
-            }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = extra.valorBase, onValueChange = { onChanged(extra.copy(valorBase = it)) },
-                    label = { Text("Valor base") }, modifier = Modifier.weight(1f),
+                    label = { Text("Valor base (R$)") }, modifier = Modifier.weight(1f),
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
                     singleLine = true, shape = RoundedCornerShape(8.dp),
                 )
