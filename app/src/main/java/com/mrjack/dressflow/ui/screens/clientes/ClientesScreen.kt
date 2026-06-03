@@ -1004,19 +1004,21 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Telefone *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = telefone,
-                                onValueChange = { telefone = it.filter { c -> c.isDigit() }.take(11) },
+                            OutlinedTextField(value = maskTelefone(telefone),
+                                onValueChange = { new ->
+                                    telefone = new.filter { c -> c.isDigit() }.take(11)
+                                },
                                 placeholder = { Text("(11) 99999-9999", color = Gray500) },
-                                visualTransformation = BrPhoneVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("CPF", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = cpf,
-                                onValueChange = { cpf = it.filter { c -> c.isDigit() }.take(11) },
+                            OutlinedTextField(value = maskCpf(cpf),
+                                onValueChange = { new ->
+                                    cpf = new.filter { c -> c.isDigit() }.take(11)
+                                },
                                 placeholder = { Text("000.000.000-00", color = Gray500) },
-                                visualTransformation = CpfVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
                         }
@@ -1240,10 +1242,9 @@ fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Telefone", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
                     OutlinedTextField(
-                        value = telefone,
-                        onValueChange = { telefone = it.filter { c -> c.isDigit() }.take(11) },
+                        value = maskTelefone(telefone),
+                        onValueChange = { new -> telefone = new.filter { c -> c.isDigit() }.take(11) },
                         placeholder = { Text("(11) 99999-9999", color = Gray500) },
-                        visualTransformation = BrPhoneVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     )
@@ -1251,10 +1252,9 @@ fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("CPF", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
                     OutlinedTextField(
-                        value = cpf,
-                        onValueChange = { cpf = it.filter { c -> c.isDigit() }.take(11) },
+                        value = maskCpf(cpf),
+                        onValueChange = { new -> cpf = new.filter { c -> c.isDigit() }.take(11) },
                         placeholder = { Text("000.000.000-00", color = Gray500) },
-                        visualTransformation = CpfVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     )
