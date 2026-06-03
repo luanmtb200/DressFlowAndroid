@@ -28,10 +28,14 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.data.api.NetworkModule
 import com.mrjack.dressflow.data.model.Locacao
+import com.mrjack.dressflow.ui.components.WaBotao
 import com.mrjack.dressflow.ui.theme.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -53,7 +57,9 @@ class MeuPainelViewModel(app: Application) : AndroidViewModel(app) {
             isLoadingMes.value = true
             erro.value = null
             try {
-                locacoesMes.value = api.locacoesDoVendedor(vendedorId, mes).body() ?: emptyList()
+                locacoesMes.value = withContext(Dispatchers.IO) {
+                    api.locacoesDoVendedor(vendedorId, mes).body() ?: emptyList()
+                }
             } catch (e: Exception) {
                 erro.value = "Erro ao carregar locações: ${e.message}"
             } finally {
@@ -66,8 +72,11 @@ class MeuPainelViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             isLoadingOrc.value = true
             try {
-                orcamentos.value = api.orcamentosDoVendedor(vendedorId).body() ?: emptyList()
-                orcamentosCancelados.value = api.orcamentosCanceladosDoVendedor(vendedorId).body() ?: emptyList()
+                // Paralelo: busca ativos e cancelados ao mesmo tempo
+                val dAtivos    = async(Dispatchers.IO) { api.orcamentosDoVendedor(vendedorId).body() ?: emptyList() }
+                val dCancelados = async(Dispatchers.IO) { api.orcamentosCanceladosDoVendedor(vendedorId).body() ?: emptyList() }
+                orcamentos.value           = dAtivos.await()
+                orcamentosCancelados.value = dCancelados.await()
             } catch (e: Exception) {
                 erro.value = "Erro ao carregar orçamentos: ${e.message}"
             } finally {
@@ -103,9 +112,14 @@ class MeuPainelViewModel(app: Application) : AndroidViewModel(app) {
     fun editarMedidas(id: Int, body: Map<String, Any?>, vendedorId: Int, mes: String, onSuccess: () -> Unit) {
         viewModelScope.launch {
             try {
-                api.atualizarLocacao(id, body)
-                carregarLocacoesMes(vendedorId, mes)
-                carregarOrcamentos(vendedorId)
+                withContext(Dispatchers.IO) { api.atualizarLocacao(id, body) }
+                // Recarrega locações e orçamentos em paralelo após edição
+                val dLoc = async { withContext(Dispatchers.IO) { api.locacoesDoVendedor(vendedorId, mes).body() ?: emptyList() } }
+                val dOrc = async { withContext(Dispatchers.IO) { api.orcamentosDoVendedor(vendedorId).body() ?: emptyList() } }
+                val dCan = async { withContext(Dispatchers.IO) { api.orcamentosCanceladosDoVendedor(vendedorId).body() ?: emptyList() } }
+                locacoesMes.value          = dLoc.await()
+                orcamentos.value           = dOrc.await()
+                orcamentosCancelados.value = dCan.await()
                 onSuccess()
             } catch (e: Exception) {
                 erro.value = "Erro: ${e.message}"
@@ -179,26 +193,37 @@ fun MeuPainelScreen(
     val isLoadingOrc by vm.isLoadingOrc.collectAsState()
     val erro by vm.erro.collectAsState()
 
+    // Um único LaunchedEffect que dispara locações e orçamentos ao mesmo tempo
     LaunchedEffect(vendedorId, mes) {
-        if (vendedorId != null) vm.carregarLocacoesMes(vendedorId, mes)
+        if (vendedorId != null) {
+            vm.carregarLocacoesMes(vendedorId, mes)
+            vm.carregarOrcamentos(vendedorId)
+        }
     }
-    LaunchedEffect(vendedorId) {
-        if (vendedorId != null) vm.carregarOrcamentos(vendedorId)
+
+    val orcamentos by remember {
+        derivedStateOf {
+            if (verTodosMeses) orcamentosRaw
+            else orcamentosRaw.filter { it.createdAt.take(7) == mesAtual }
+        }
     }
+    val passados by remember { derivedStateOf { orcamentos.count { getAlerta(it.dataEvento) == AlertaData.PASSADO } } }
+    val urgentes by remember { derivedStateOf { orcamentos.count { getAlerta(it.dataEvento) == AlertaData.URGENTE } } }
 
-    val orcamentos = if (verTodosMeses) orcamentosRaw
-    else orcamentosRaw.filter { it.createdAt.take(7) == mesAtual }
-
-    val passados = orcamentos.count { getAlerta(it.dataEvento) == AlertaData.PASSADO }
-    val urgentes = orcamentos.count { getAlerta(it.dataEvento) == AlertaData.URGENTE }
-
-    val locFiltradas = locacoesMes
-        .filter { buscaLoc.isBlank() || it.cliente?.nome?.contains(buscaLoc, ignoreCase = true) == true }
-        .sortedBy { it.cliente?.nome ?: "" }
-
-    val orcFiltrados = orcamentos
-        .filter { buscaOrc.isBlank() || it.cliente?.nome?.contains(buscaOrc, ignoreCase = true) == true }
-        .sortedBy { it.cliente?.nome ?: "" }
+    val locFiltradas by remember {
+        derivedStateOf {
+            locacoesMes
+                .filter { buscaLoc.isBlank() || it.cliente?.nome?.contains(buscaLoc, ignoreCase = true) == true }
+                .sortedBy { it.cliente?.nome ?: "" }
+        }
+    }
+    val orcFiltrados by remember {
+        derivedStateOf {
+            orcamentos
+                .filter { buscaOrc.isBlank() || it.cliente?.nome?.contains(buscaOrc, ignoreCase = true) == true }
+                .sortedBy { it.cliente?.nome ?: "" }
+        }
+    }
 
     if (vendedorId == null) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -518,6 +543,7 @@ private fun LocacaoRow(l: Locacao, onEditar: (Locacao) -> Unit) {
             fontWeight = FontWeight.Medium, fontSize = 12.sp, color = Gray900,
             textAlign = androidx.compose.ui.text.style.TextAlign.End,
         )
+        WaBotao(l.cliente?.telefone, modifier = Modifier.size(36.dp))
         IconButton(onClick = { onEditar(l) }, modifier = Modifier.size(36.dp)) {
             Icon(Icons.Default.Edit, contentDescription = "Editar", tint = Blue600, modifier = Modifier.size(16.dp))
         }
@@ -800,7 +826,9 @@ private fun OrcamentoCard(
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
+                    WaBotao(locacao.cliente?.telefone, modifier = Modifier.size(40.dp))
                     OutlinedButton(
                         onClick = { onEditar(locacao) },
                         modifier = Modifier.weight(1f),

@@ -15,11 +15,13 @@ import com.google.gson.stream.JsonReader
 import com.google.gson.stream.JsonToken
 import com.google.gson.stream.JsonWriter
 import com.mrjack.dressflow.BuildConfig
+import okhttp3.Cache
 import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "dressflow_prefs")
@@ -92,15 +94,18 @@ private class NullSafeAdapterFactory : TypeAdapterFactory {
 
 object NetworkModule {
     fun provideApiService(context: Context): ApiService {
-        val logging = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BASIC
-        }
-        val client = OkHttpClient.Builder()
+        val cache = Cache(File(context.cacheDir, "http_cache"), 10L * 1024 * 1024) // 10 MB
+        val clientBuilder = OkHttpClient.Builder()
             .addInterceptor(AuthInterceptor(context))
-            .addInterceptor(logging)
+            .cache(cache)
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
-            .build()
+        if (BuildConfig.DEBUG) {
+            clientBuilder.addInterceptor(HttpLoggingInterceptor().apply {
+                level = HttpLoggingInterceptor.Level.BASIC
+            })
+        }
+        val client = clientBuilder.build()
 
         val gson: Gson = GsonBuilder()
             .registerTypeAdapterFactory(NullSafeAdapterFactory())

@@ -24,6 +24,8 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.runtime.CompositionLocalProvider
+import com.mrjack.dressflow.ui.navigation.LocalNavController
 import com.mrjack.dressflow.ui.navigation.Screen
 import com.mrjack.dressflow.ui.navigation.screensParaNivel
 import com.mrjack.dressflow.ui.screens.agenda.AgendaScreen
@@ -32,6 +34,8 @@ import com.mrjack.dressflow.ui.screens.clientes.ClientesScreen
 import com.mrjack.dressflow.ui.screens.dashboard.DashboardScreen
 import com.mrjack.dressflow.ui.screens.login.LoginScreen
 import com.mrjack.dressflow.ui.screens.mural.MuralScreen
+import com.mrjack.dressflow.ui.screens.mural.MuralViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.ui.screens.padronizacoes.PadronizacoesScreen
 import com.mrjack.dressflow.ui.screens.vendas.VendasScreen
 import com.mrjack.dressflow.ui.screens.whatsapp.WhatsAppScreen
@@ -144,6 +148,8 @@ fun MainApp(user: com.mrjack.dressflow.data.model.UsuarioLogado, onLogout: () ->
     val screens = screensParaNivel(user.nivel)
     val currentBackStack by navController.currentBackStackEntryAsState()
     val currentRoute = currentBackStack?.destination?.route
+    val muralVm: MuralViewModel = viewModel()
+    val totalMuralNaoLidas by muralVm.totalNaoLidas.collectAsState()
 
     fun navigate(route: String) {
         navController.navigate(route) {
@@ -153,6 +159,7 @@ fun MainApp(user: com.mrjack.dressflow.data.model.UsuarioLogado, onLogout: () ->
         }
     }
 
+    CompositionLocalProvider(LocalNavController provides navController) {
     Scaffold(
         topBar = {
             Surface(shadowElevation = 2.dp, color = Color.White) {
@@ -183,10 +190,27 @@ fun MainApp(user: com.mrjack.dressflow.data.model.UsuarioLogado, onLogout: () ->
         bottomBar = {
             NavigationBar(containerColor = Color.White) {
                 screens.forEach { screen ->
+                    val isMural = screen.route == Screen.Mural.route
                     NavigationBarItem(
                         selected = currentRoute == screen.route,
                         onClick = { navigate(screen.route) },
-                        icon = { Icon(screen.icon, contentDescription = screen.label, modifier = Modifier.size(22.dp)) },
+                        icon = {
+                            if (isMural && totalMuralNaoLidas > 0) {
+                                BadgedBox(badge = {
+                                    Badge(containerColor = Color(0xFFEF4444)) {
+                                        Text(
+                                            if (totalMuralNaoLidas > 99) "99+" else "$totalMuralNaoLidas",
+                                            fontSize = 8.sp,
+                                            color = Color.White,
+                                        )
+                                    }
+                                }) {
+                                    Icon(screen.icon, contentDescription = screen.label, modifier = Modifier.size(22.dp))
+                                }
+                            } else {
+                                Icon(screen.icon, contentDescription = screen.label, modifier = Modifier.size(22.dp))
+                            }
+                        },
                         label = { Text(screen.label, fontSize = 9.sp) },
                         colors = NavigationBarItemDefaults.colors(
                             selectedIconColor = Blue600,
@@ -209,9 +233,10 @@ fun MainApp(user: com.mrjack.dressflow.data.model.UsuarioLogado, onLogout: () ->
                 composable(Screen.Vendas.route)        { VendasScreen() }
                 composable(Screen.Agenda.route)        { AgendaScreen() }
                 composable(Screen.Padronizacoes.route) { PadronizacoesScreen() }
-                composable(Screen.Mural.route)         { MuralScreen() }
+                composable(Screen.Mural.route)         { MuralScreen(vm = muralVm) }
                 composable(Screen.WhatsApp.route)      { WhatsAppScreen() }
             }
         }
     }
+    } // CompositionLocalProvider
 }

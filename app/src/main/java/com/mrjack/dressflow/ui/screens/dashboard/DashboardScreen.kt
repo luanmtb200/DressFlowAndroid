@@ -20,7 +20,9 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.data.api.NetworkModule
 import com.mrjack.dressflow.data.model.Locacao
 import com.mrjack.dressflow.data.model.VendasDia
+import com.mrjack.dressflow.ui.components.WaBotao
 import com.mrjack.dressflow.ui.theme.*
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -41,9 +43,13 @@ class DashboardViewModel(app: Application) : AndroidViewModel(app) {
             isLoading.value = true
             erro.value = null
             try {
-                vendasDia.value = api.vendasDia().body()
-                orcamentos.value = api.orcamentosAtivos().body() ?: emptyList()
-                devolucoes.value = api.devolucoesPendentes().body() ?: emptyList()
+                // Paralelo: todas as 3 requisições ao mesmo tempo
+                val dVendas = async { api.vendasDia().body() }
+                val dOrc    = async { api.orcamentosAtivos().body() ?: emptyList() }
+                val dDevol  = async { api.devolucoesPendentes().body() ?: emptyList() }
+                vendasDia.value  = dVendas.await()
+                orcamentos.value = dOrc.await()
+                devolucoes.value = dDevol.await()
             } catch (e: Exception) {
                 erro.value = e.message
             } finally {
@@ -124,6 +130,7 @@ fun DashboardScreen(vm: DashboardViewModel = viewModel()) {
                     ListItem(
                         headlineContent = { Text(loc.cliente?.nome ?: "—", fontWeight = FontWeight.Medium) },
                         supportingContent = { Text(loc.traje + " · Evento: " + fmtData(loc.dataEvento)) },
+                        trailingContent = { WaBotao(loc.cliente?.telefone) },
                     )
                     HorizontalDivider()
                 }
@@ -141,6 +148,7 @@ fun DashboardScreen(vm: DashboardViewModel = viewModel()) {
                     ListItem(
                         headlineContent = { Text(loc.cliente?.nome ?: "—", fontWeight = FontWeight.Medium) },
                         supportingContent = { Text(loc.evento ?: "Sem evento" + " · " + fmtData(loc.dataEvento)) },
+                        trailingContent = { WaBotao(loc.cliente?.telefone) },
                     )
                     HorizontalDivider()
                 }

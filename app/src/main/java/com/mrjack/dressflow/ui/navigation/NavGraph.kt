@@ -2,7 +2,16 @@ package com.mrjack.dressflow.ui.navigation
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavController
+import kotlinx.coroutines.flow.MutableStateFlow
+
+val LocalNavController = compositionLocalOf<NavController> { error("No NavController") }
+
+object WaDeeplink {
+    val targetPhone = MutableStateFlow<String?>(null)
+}
 
 sealed class Screen(val route: String, val label: String, val icon: ImageVector) {
     object Dashboard       : Screen("dashboard",       "Controle",       Icons.Default.Dashboard)

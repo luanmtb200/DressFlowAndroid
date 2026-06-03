@@ -98,19 +98,18 @@ data class LocacaoListaParams(
 // ── Agendamento ───────────────────────────────────────────────────────────────
 data class Agendamento(
     val id: Int,
-    val clienteNome: String,
-    val clienteTelefone: String?,
+    val nomeCliente: String?,
+    val telefone: String?,
+    val dataHora: String?,
     val tipo: String,
     val status: String,
-    val data: String,
-    val hora: String?,
-    val observacoes: String?,
-    val locacaoId: Int?,
-    val vendedorId: Int?,
-    val usuario: String?,
-    val dataEvento: String?,
-    val tipoCliente: String?,
-    val traje: String?,
+    val observacao: String? = null,
+    val tipoCliente: String? = null,
+    val vendedorId: Int? = null,
+    val dataEvento: String? = null,
+    val eventoNome: String? = null,
+    val cliente: ClienteResumo? = null,
+    val vendedor: VendedorResumo? = null,
 )
 
 // ── Padronização ──────────────────────────────────────────────────────────────
@@ -213,6 +212,10 @@ data class MuralCanal(
     val membros: List<MuralMembro>?,
     val mensagens: List<MuralMensagemResumo>?,
     @SerializedName("_count") val count: MuralCount?,
+    val autoDestruicao: Boolean = false,
+    val conviteStatus: String? = null,
+    val conviteDeId: Int? = null,
+    val conviteParaId: Int? = null,
 )
 
 data class MuralMembro(val usuarioId: Int)
@@ -234,7 +237,10 @@ data class MuralMensagem(
     val urlArquivo: String?,
     val nomeArquivo: String?,
     val createdAt: String,
+    val deletaEm: String? = null, // autodestruição
 )
+
+data class ConviteSecreto(val canalId: Int, val deId: Int, val deNome: String)
 
 // ── Traje de Padronização ─────────────────────────────────────────────────────
 data class TrajePadronizacao(
@@ -277,10 +283,55 @@ data class WaMensagem(
     val type: String,
     val hasMedia: Boolean,
     val filename: String?,
+    val msgId: String? = null,
+    val reaction: String? = null,
+    val starred: Boolean = false,
+    val pinned: Boolean = false,
 )
 
-data class EtiquetaWa(val id: String, val name: String, val hexColor: String?)
+data class GatewayMensagem(
+    val id: Long = 0,
+    val telefone: String = "",
+    val conteudo: String = "",
+    val tipo: String = "texto",
+    val direcao: String = "recebida",
+    val timestamp: Long = 0,
+    val status: String = "",
+    val msg_id: String? = null,
+) {
+    fun toWaMensagem(): WaMensagem {
+        val isMedia = tipo in listOf("audio", "image", "video", "document")
+        val mappedType = when (tipo) {
+            "audio"    -> "ptt"
+            "image"    -> "image"
+            "video"    -> "video"
+            "document" -> "document"
+            else       -> "chat"
+        }
+        return WaMensagem(
+            id = msg_id?.takeIf { it.isNotBlank() } ?: "gw-$id",
+            body = if (isMedia) null else conteudo.ifBlank { null },
+            fromMe = direcao == "enviada",
+            timestamp = if (timestamp > 1_000_000_000_000L) timestamp / 1000L else timestamp,
+            type = mappedType,
+            hasMedia = isMedia,
+            filename = null,
+            msgId = msg_id?.takeIf { it.isNotBlank() },
+        )
+    }
+}
+
+data class EtiquetaWa(
+    val id: String,
+    @SerializedName("nome") val name: String = "",
+    @SerializedName("cor") val hexColor: String? = null,
+)
 data class FotoChatResponse(val url: String?)
+
+// ── Galeria ───────────────────────────────────────────────────────────────────
+data class GaleriaAlbum(val album: String, val total: Int, val capa: String?)
+data class GaleriaFoto(val id: Int, val nome: String, val album: String, val url: String)
+data class GaleriaPage(val fotos: List<GaleriaFoto>, val total: Int, val pages: Int, val page: Int)
 
 // ── Comissão (Meu Painel) ─────────────────────────────────────────────────────
 data class ComissaoVendedor(
@@ -316,4 +367,22 @@ data class FinanceiroResumo(
     val meta2: Double?,
     val metaCustomizada: Boolean?,
     val projecao: ProjecaoInfo?,
+)
+
+// ── Config Opções (formas pagamento e tipos cliente customizados) ──────────────
+data class ConfigOpcao(
+    val id: Int,
+    val categoria: String,
+    val valor: String,
+    val label: String,
+)
+
+// ── Gateway conversa (todas as conversas do SQLite) ───────────────────────────
+data class GatewayConversa(
+    val telefone: String = "",
+    val ultima_mensagem: String = "",
+    val ultimo_timestamp: Long = 0,
+    val total_nao_lidas: Int = 0,
+    val canal: String = "whatsapp",
+    val nome_contato: String? = null,
 )

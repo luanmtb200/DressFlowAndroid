@@ -29,7 +29,11 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.data.api.NetworkModule
 import com.mrjack.dressflow.data.model.Cliente
 import com.mrjack.dressflow.data.model.Locacao
+import com.mrjack.dressflow.ui.components.BrPhoneVisualTransformation
+import com.mrjack.dressflow.ui.components.CpfVisualTransformation
 import com.mrjack.dressflow.ui.components.DatePickerField
+import com.mrjack.dressflow.ui.components.TipoClienteSelect
+import com.mrjack.dressflow.ui.components.WaBotao
 import com.mrjack.dressflow.ui.screens.vendas.LocacaoFormScreen
 import com.mrjack.dressflow.ui.screens.vendas.VendasViewModel
 import com.mrjack.dressflow.ui.screens.vendas.brl
@@ -68,6 +72,7 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
     val isDevolvendoId   = MutableStateFlow<Int?>(null)
     val eventoParaLocacao      = MutableStateFlow("")
     val dataEventoParaLocacao  = MutableStateFlow("")
+    val editandoCliente  = MutableStateFlow(false)
     private var searchJob: Job? = null
 
     fun buscar(q: String) {
@@ -137,9 +142,40 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
     fun fecharForm()          { criandoCliente.value = false }
     fun abrirNovaLocacao()    { mostrandoNovaLocacao.value = true }
     fun fecharNovaLocacao()   { mostrandoNovaLocacao.value = false }
+    fun abrirEdicaoCliente()  { editandoCliente.value = true }
+    fun fecharEdicaoCliente() { editandoCliente.value = false }
+
+    fun salvarEdicaoCliente(form: ClienteForm) {
+        val c = selecionado.value ?: return
+        viewModelScope.launch {
+            isSaving.value = true
+            erro.value = null
+            try {
+                val body = mutableMapOf<String, Any?>(
+                    "nome"        to form.nome,
+                    "telefone"    to form.telefone.ifBlank { null },
+                    "cpf"         to form.cpf.replace(Regex("[^0-9]"), "").ifBlank { null },
+                    "email"       to form.email.ifBlank { null },
+                    "tipoCliente" to form.tipoCliente.ifBlank { null },
+                    "cidade"      to form.cidade.ifBlank { null },
+                    "observacoes" to form.observacoes.ifBlank { null },
+                )
+                val resp = api.atualizarCliente(c.id, body)
+                if (resp.isSuccessful) {
+                    resp.body()?.let { updated ->
+                        selecionado.value = updated
+                        sucesso.value = "Cliente atualizado!"
+                    }
+                    fecharEdicaoCliente()
+                } else erro.value = "Erro ${resp.code()}"
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSaving.value = false }
+        }
+    }
 
     val vendedores         = MutableStateFlow<List<com.mrjack.dressflow.data.model.Vendedor>>(emptyList())
     val currentVendedorId  = MutableStateFlow<Int?>(null)
+    val userNivel          = MutableStateFlow("VENDEDOR")
 
     init {
         viewModelScope.launch {
@@ -152,6 +188,7 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
                     if (json != null) {
                         val u = com.google.gson.Gson().fromJson(json, com.mrjack.dressflow.data.model.UsuarioLogado::class.java)
                         currentVendedorId.value = u?.vendedorId
+                        userNivel.value = u?.nivel ?: "VENDEDOR"
                     }
                 }
             } catch (_: Exception) {}
@@ -267,6 +304,7 @@ fun ClientesScreen(vm: ClientesViewModel = viewModel()) {
     val eventoLoc        by vm.eventoParaLocacao.collectAsState()
     val dataEventoLoc    by vm.dataEventoParaLocacao.collectAsState()
     val sucesso          by vm.sucesso.collectAsState()
+    val editandoCliente  by vm.editandoCliente.collectAsState()
     val vendasVm: VendasViewModel = viewModel()
 
     LaunchedEffect(sucesso) {
@@ -288,6 +326,7 @@ fun ClientesScreen(vm: ClientesViewModel = viewModel()) {
                         vm.dataEventoParaLocacao.value = ""
                     },
                 )
+            editandoCliente && selecionado != null -> ClienteEditarScreen(vm, selecionado!!)
             criandoCliente      -> NovoAtendimentoScreen(vm)
             selecionado != null -> ClienteDetalheScreen(vm, selecionado!!)
             else                -> ListaClientesScreen(vm)
@@ -420,6 +459,7 @@ fun ClienteCard(c: Cliente, onClick: () -> Unit) {
                     )
                 }
             }
+            WaBotao(c.telefone, modifier = Modifier.size(36.dp))
         }
     }
 }
@@ -675,6 +715,16 @@ fun ClienteDetalheScreen(vm: ClientesViewModel, c: Cliente, vendasVm: VendasView
                 IconButton(onClick = { vm.voltar() }) { Icon(Icons.Default.ArrowBack, null) }
                 Text(c.nome, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, modifier = Modifier.weight(1f))
                 OutlinedButton(
+                    onClick = { vm.abrirEdicaoCliente() },
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                ) {
+                    Icon(Icons.Default.Edit, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Editar", fontSize = 13.sp)
+                }
+                Spacer(Modifier.width(6.dp))
+                OutlinedButton(
                     onClick = { vm.abrirNovaLocacao() },
                     shape = RoundedCornerShape(8.dp),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
@@ -850,6 +900,8 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
     val erro              by vm.erro.collectAsState()
     val vendedores        by vm.vendedores.collectAsState()
     val currentVendedorId by vm.currentVendedorId.collectAsState()
+    val userNivel         by vm.userNivel.collectAsState()
+    val podeAdicionar = listOf("ADMIN", "GERENCIA", "DIRETOR").contains(userNivel)
 
     var nome            by remember { mutableStateOf("") }
     var telefone        by remember { mutableStateOf("") }
@@ -953,16 +1005,18 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Telefone *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
                             OutlinedTextField(value = telefone,
-                                onValueChange = { telefone = maskTelefone(it) },
+                                onValueChange = { telefone = it.filter { c -> c.isDigit() }.take(11) },
                                 placeholder = { Text("(11) 99999-9999", color = Gray500) },
+                                visualTransformation = BrPhoneVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone, imeAction = ImeAction.Next))
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("CPF", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
                             OutlinedTextField(value = cpf,
-                                onValueChange = { cpf = maskCpf(it) },
+                                onValueChange = { cpf = it.filter { c -> c.isDigit() }.take(11) },
                                 placeholder = { Text("000.000.000-00", color = Gray500) },
+                                visualTransformation = CpfVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
                         }
@@ -972,21 +1026,16 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Tipo de cliente", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            ExposedDropdownMenuBox(expanded = tipoExpanded, onExpandedChange = { tipoExpanded = it }) {
-                                OutlinedTextField(
-                                    value = tipos.find { it.first == tipoCliente }?.second ?: "— Selecionar —",
-                                    onValueChange = {}, readOnly = true,
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(tipoExpanded) },
-                                    modifier = Modifier.fillMaxWidth().menuAnchor(), shape = RoundedCornerShape(8.dp),
-                                )
-                                ExposedDropdownMenu(expanded = tipoExpanded, onDismissRequest = { tipoExpanded = false }) {
-                                    tipos.forEach { (v, label) ->
-                                        DropdownMenuItem(text = { Text(label) }, onClick = { tipoCliente = v; tipoExpanded = false })
-                                    }
-                                }
-                            }
+                            TipoClienteSelect(
+                                value = tipoCliente,
+                                onValueChange = { tipoCliente = it },
+                                podeAdicionar = podeAdicionar,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
                         }
-                        DatePickerField(label = "Data de nascimento", value = dataNasc, onDateSelected = { dataNasc = it }, modifier = Modifier.weight(1f))
+                        if (podeAdicionar) {
+                            DatePickerField(label = "Data de nascimento", value = dataNasc, onDateSelected = { dataNasc = it }, modifier = Modifier.weight(1f))
+                        }
                     }
 
                     // Referência
@@ -1129,6 +1178,142 @@ fun ClienteField(
         keyboardOptions = KeyboardOptions(capitalization = caps, keyboardType = keyType, imeAction = ImeAction.Next),
         shape = RoundedCornerShape(10.dp),
     )
+}
+
+// ─── Editar cliente ───────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
+    val isSaving  by vm.isSaving.collectAsState()
+    val erro      by vm.erro.collectAsState()
+    val userNivel by vm.userNivel.collectAsState()
+    val podeAdicionar = listOf("ADMIN", "GERENCIA", "DIRETOR").contains(userNivel)
+
+    var nome        by remember { mutableStateOf(c.nome) }
+    var telefone    by remember { mutableStateOf(c.telefone?.filter { it.isDigit() } ?: "") }
+    var cpf         by remember { mutableStateOf(c.cpf?.filter { it.isDigit() } ?: "") }
+    var email       by remember { mutableStateOf(c.email ?: "") }
+    var tipoCliente by remember { mutableStateOf(c.tipoCliente ?: "") }
+    var cidade      by remember { mutableStateOf(c.cidade ?: "") }
+    var observacoes by remember { mutableStateOf(c.observacoes ?: "") }
+    var tipoExpanded by remember { mutableStateOf(false) }
+
+    val tipos = listOf(
+        "" to "— Selecionar —",
+        "NOIVO" to "Noivo", "NOIVA" to "Noiva",
+        "PADRINHO" to "Padrinho", "MADRINHA" to "Madrinha",
+        "PAGEM" to "Pagem",
+        "FORMANDO" to "Formando", "FORMANDA" to "Formanda",
+        "PAI_FORMANDO" to "Pai do Formando", "MAE_FORMANDA" to "Mãe da Formanda",
+        "DEBUTANTE" to "Debutante", "PRINCIPE_DEBUTANTE" to "Príncipe Debutante",
+        "PAI_DEBUTANTE" to "Pai da Debutante", "MAE_DEBUTANTE" to "Mãe da Debutante",
+        "OUTROS" to "Outros",
+    )
+
+    Column(Modifier.fillMaxSize()) {
+        Surface(shadowElevation = 2.dp, color = Color.White) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                IconButton(onClick = { vm.fecharEdicaoCliente() }) {
+                    Icon(Icons.Default.ArrowBack, null, tint = Blue600)
+                }
+                Text("Editar cliente", fontWeight = FontWeight.SemiBold, fontSize = 18.sp, modifier = Modifier.weight(1f))
+            }
+        }
+
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (erro != null) {
+                Surface(color = Red100, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(erro!!, color = Red500, fontSize = 13.sp, modifier = Modifier.padding(12.dp))
+                }
+            }
+
+            ClienteField("Nome completo *", nome, { nome = it }, caps = KeyboardCapitalization.Words)
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("Telefone", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                    OutlinedTextField(
+                        value = telefone,
+                        onValueChange = { telefone = it.filter { c -> c.isDigit() }.take(11) },
+                        placeholder = { Text("(11) 99999-9999", color = Gray500) },
+                        visualTransformation = BrPhoneVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    )
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("CPF", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                    OutlinedTextField(
+                        value = cpf,
+                        onValueChange = { cpf = it.filter { c -> c.isDigit() }.take(11) },
+                        placeholder = { Text("000.000.000-00", color = Gray500) },
+                        visualTransformation = CpfVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    )
+                }
+            }
+
+            ClienteField("E-mail", email, { email = it }, keyType = KeyboardType.Email)
+            ClienteField("Cidade", cidade, { cidade = it }, caps = KeyboardCapitalization.Words)
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Tipo de cliente", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                TipoClienteSelect(
+                    value = tipoCliente,
+                    onValueChange = { tipoCliente = it },
+                    podeAdicionar = podeAdicionar,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Observações", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                OutlinedTextField(
+                    value = observacoes,
+                    onValueChange = { observacoes = it },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    maxLines = 4,
+                )
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        if (nome.isBlank()) { vm.erro.value = "Nome obrigatório"; return@Button }
+                        vm.salvarEdicaoCliente(ClienteForm(
+                            nome = nome, telefone = telefone, cpf = cpf,
+                            email = email, tipoCliente = tipoCliente,
+                            cidade = cidade, observacoes = observacoes,
+                        ))
+                    },
+                    enabled = !isSaving,
+                    colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    if (isSaving) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                    else {
+                        Icon(Icons.Default.Save, null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Salvar alterações", fontWeight = FontWeight.SemiBold)
+                    }
+                }
+                OutlinedButton(
+                    onClick = { vm.fecharEdicaoCliente() },
+                    shape = RoundedCornerShape(8.dp),
+                ) { Text("Cancelar") }
+            }
+        }
+    }
 }
 
 fun tipoLabel(tipo: String?): String = when (tipo) {

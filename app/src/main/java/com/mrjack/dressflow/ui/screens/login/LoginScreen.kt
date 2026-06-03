@@ -20,6 +20,9 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.*
@@ -31,8 +34,12 @@ import com.mrjack.dressflow.viewmodel.AuthViewModel
 @Composable
 fun LoginScreen(viewModel: AuthViewModel) {
     val state by viewModel.state.collectAsState()
-    var email by remember { mutableStateOf("") }
-    var senha by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("df_login_prefs", android.content.Context.MODE_PRIVATE) }
+
+    var email by remember { mutableStateOf(prefs.getString("saved_email", "") ?: "") }
+    var senha by remember { mutableStateOf(prefs.getString("saved_senha", "") ?: "") }
+    var lembrar by remember { mutableStateOf(prefs.getBoolean("lembrar", false)) }
     var senhaVisivel by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
     val isLoading = state is AuthState.Loading
@@ -246,9 +253,39 @@ fun LoginScreen(viewModel: AuthViewModel) {
                         }
                     }
 
+                    // Checkbox "Lembrar dados"
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.clickable(
+                            indication = null,
+                            interactionSource = remember { MutableInteractionSource() },
+                        ) { lembrar = !lembrar },
+                    ) {
+                        Checkbox(
+                            checked = lembrar,
+                            onCheckedChange = { lembrar = it },
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = Color(0xFF2563EB),
+                                uncheckedColor = Color(0xFF475569),
+                            ),
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Lembrar dados de login", fontSize = 13.sp, color = Color(0xFFCBD5E1))
+                    }
+
                     Button(
                         onClick = {
                             focusManager.clearFocus()
+                            // Salva ou limpa dados conforme checkbox
+                            if (lembrar) {
+                                prefs.edit()
+                                    .putString("saved_email", email.trim())
+                                    .putString("saved_senha", senha)
+                                    .putBoolean("lembrar", true)
+                                    .apply()
+                            } else {
+                                prefs.edit().clear().apply()
+                            }
                             viewModel.login(email.trim(), senha)
                         },
                         modifier = Modifier.fillMaxWidth().height(50.dp),

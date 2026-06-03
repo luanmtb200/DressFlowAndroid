@@ -150,6 +150,19 @@ interface ApiService {
     @POST("mural/dm/{outroId}")
     suspend fun criarDm(@Path("outroId") outroId: Int): Response<MuralCanal>
 
+    // Chat Secreto
+    @POST("mural/secreto/convidar")
+    suspend fun convidarSecreto(@Body body: Map<String, Int>): Response<MuralCanal>
+
+    @POST("mural/secreto/{canalId}/aceitar")
+    suspend fun aceitarSecreto(@Path("canalId") canalId: Int): Response<MuralCanal>
+
+    @POST("mural/secreto/{canalId}/recusar")
+    suspend fun recusarSecreto(@Path("canalId") canalId: Int): Response<Any>
+
+    @DELETE("mural/secreto/{canalId}/encerrar")
+    suspend fun encerrarSecreto(@Path("canalId") canalId: Int): Response<Any>
+
     // ── WhatsApp ──────────────────────────────────────────────────────────────
     @GET("whatsapp/status")
     suspend fun statusWhatsApp(): Response<WhatsAppStatus>
@@ -164,16 +177,72 @@ interface ApiService {
     ): Response<List<WaMensagem>>
 
     @POST("whatsapp/enviar")
-    suspend fun enviarMensagemWa(@Body body: Map<String, String>): Response<Any>
+    suspend fun enviarMensagemWa(@Body body: Map<String, @JvmSuppressWildcards String?>): Response<Any>
 
     @POST("whatsapp/enviar-midia")
     suspend fun enviarMidiaWa(@Body body: Map<String, @JvmSuppressWildcards String?>): Response<Any>
 
+    @POST("whatsapp/reagir")
+    suspend fun reagirWa(@Body body: Map<String, String>): Response<Any>
+
+    @POST("whatsapp/encaminhar")
+    suspend fun encaminharWa(@Body body: Map<String, String>): Response<Any>
+
+    @POST("whatsapp/fixar")
+    suspend fun fixarWa(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Any>
+
+    @POST("whatsapp/favoritar")
+    suspend fun favoritarWa(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Any>
+
+    @POST("whatsapp/marcar-nao-lida")
+    suspend fun marcarNaoLidaWa(@Body body: Map<String, String>): Response<Any>
+
+    @POST("whatsapp/enviar-audio")
+    suspend fun enviarAudioWa(@Body body: Map<String, String>): Response<Any>
+
+    @POST("whatsapp/excluir")
+    suspend fun excluirWa(@Body body: Map<String, String>): Response<Any>
+
+    @POST("whatsapp/editar")
+    suspend fun editarWa(@Body body: Map<String, String>): Response<Any>
+
     @GET("whatsapp/labels/map")
     suspend fun listarLabels(): Response<Map<String, List<EtiquetaWa>>>
 
+    @GET("whatsapp/labels")
+    suspend fun listarAllLabels(): Response<List<EtiquetaWa>>
+
+    @GET("whatsapp/labels/chat/{chatId}")
+    suspend fun listarLabelsChat(@Path("chatId", encoded = true) chatId: String): Response<List<EtiquetaWa>>
+
+    @POST("whatsapp/labels/chat/{chatId}/{labelId}")
+    suspend fun adicionarLabel(
+        @Path("chatId", encoded = true) chatId: String,
+        @Path("labelId") labelId: String,
+    ): Response<Any>
+
+    @DELETE("whatsapp/labels/chat/{chatId}/{labelId}")
+    suspend fun removerLabel(
+        @Path("chatId", encoded = true) chatId: String,
+        @Path("labelId") labelId: String,
+    ): Response<Any>
+
     @GET("whatsapp/foto-chat/{chatId}")
     suspend fun fotoChat(@Path("chatId", encoded = true) chatId: String): Response<FotoChatResponse>
+
+    @POST("whatsapp/enviar-url")
+    suspend fun enviarUrlWa(@Body body: Map<String, @JvmSuppressWildcards String?>): Response<Any>
+
+    // ── Galeria ───────────────────────────────────────────────────────────────
+    @GET("galeria/albums")
+    suspend fun listarAlbunsGaleria(): Response<List<GaleriaAlbum>>
+
+    @GET("galeria")
+    suspend fun listarFotosGaleria(
+        @Query("page") page: Int = 1,
+        @Query("album") album: String? = null,
+        @Query("q") q: String? = null,
+    ): Response<GaleriaPage>
 
     // ── Vendedores ────────────────────────────────────────────────────────────
     @GET("vendedores")
@@ -205,4 +274,11 @@ interface ApiService {
 
     @GET("relatorios/financeiro")
     suspend fun financeiroResumo(@Query("mes") mes: String): Response<FinanceiroResumo>
+
+    // ── Config Opções (formas pagamento / tipos cliente por loja) ─────────────
+    @GET("config-opcoes")
+    suspend fun listarConfigOpcoes(@Query("categoria") categoria: String): Response<List<com.mrjack.dressflow.data.model.ConfigOpcao>>
+
+    @POST("config-opcoes")
+    suspend fun criarConfigOpcao(@Body body: Map<String, String>): Response<com.mrjack.dressflow.data.model.ConfigOpcao>
 }

@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -28,6 +27,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.data.api.NetworkModule
 import com.mrjack.dressflow.data.model.Agendamento
 import com.mrjack.dressflow.ui.components.DatePickerField
+import com.mrjack.dressflow.ui.components.WaBotao
 import com.mrjack.dressflow.ui.theme.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -53,6 +53,24 @@ private fun addDias(dateStr: String, dias: Int): String {
 private fun fmtDDMM(dateStr: String): String = try {
     "${dateStr.substring(8, 10)}/${dateStr.substring(5, 7)}"
 } catch (_: Exception) { dateStr }
+
+private fun getSlotsForDate(dateStr: String): List<String> {
+    if (dateStr.isBlank()) return emptyList()
+    val parts = dateStr.split("-")
+    if (parts.size != 3) return emptyList()
+    return try {
+        val c = Calendar.getInstance()
+        c.set(parts[0].toInt(), parts[1].toInt() - 1, parts[2].toInt())
+        when (c.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.MONDAY, Calendar.TUESDAY, Calendar.WEDNESDAY,
+            Calendar.THURSDAY, Calendar.FRIDAY ->
+                listOf("09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00", "18:00")
+            Calendar.SATURDAY ->
+                listOf("08:00", "09:00", "10:00", "11:00", "12:00")
+            else -> emptyList()
+        }
+    } catch (_: Exception) { emptyList() }
+}
 
 // ─── ViewModel ────────────────────────────────────────────────────────────────
 
@@ -88,20 +106,38 @@ class AgendaViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun reagendar(id: Int, novaDataHora: String, onSuccess: () -> Unit) {
+        viewModelScope.launch {
+            isSaving.value = true
+            erro.value = null
+            try {
+                val resp = api.atualizarAgendamento(id, mapOf("dataHora" to novaDataHora, "reagendado" to true))
+                if (resp.isSuccessful) {
+                    agendamentos.value = agendamentos.value.map {
+                        if (it.id == id) it.copy(dataHora = novaDataHora) else it
+                    }
+                    sucesso.value = "Reagendado com sucesso!"
+                    onSuccess()
+                } else erro.value = "Erro ${resp.code()}"
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSaving.value = false }
+        }
+    }
+
     fun criarAgendamento(form: AgendamentoForm, onSuccess: () -> Unit) {
         viewModelScope.launch {
             isSaving.value = true
             erro.value = null
             try {
+                val horaStr = form.hora.filter { it.isDigit() || it == ':' }.ifBlank { "12:00" }
+                val dataHora = "${form.data}T$horaStr:00"
                 val body = mutableMapOf<String, Any?>(
-                    "clienteNome"     to form.clienteNome,
-                    "clienteTelefone" to form.clienteTelefone.ifBlank { null },
-                    "tipo"            to form.tipo,
-                    "data"            to form.data,
-                    "hora"            to form.hora.ifBlank { null },
-                    "observacoes"     to form.observacoes.ifBlank { null },
-                    "tipoCliente"     to form.tipoCliente.ifBlank { null },
-                    "traje"           to form.traje.ifBlank { null },
+                    "nomeCliente" to form.clienteNome,
+                    "telefone"    to form.clienteTelefone.filter { it.isDigit() }.ifBlank { null },
+                    "tipo"        to form.tipo,
+                    "dataHora"    to dataHora,
+                    "observacao"  to form.observacoes.ifBlank { null },
+                    "tipoCliente" to form.tipoCliente.ifBlank { null },
                 )
                 val resp = api.criarAgendamento(body)
                 if (resp.isSuccessful) {
@@ -167,6 +203,7 @@ fun ListaAgendaScreen(
 ) {
     val agendamentos by vm.agendamentos.collectAsState()
     val isLoading   by vm.isLoading.collectAsState()
+    val isSaving    by vm.isSaving.collectAsState()
     val erro        by vm.erro.collectAsState()
 
     LaunchedEffect(inicio, fim) { vm.carregar(inicio, fim) }
@@ -225,16 +262,139 @@ fun ListaAgendaScreen(
             }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                itemsIndexed(agendamentos) { _, ag ->
-                    AgendamentoCard(ag) { vm.confirmar(ag.id) }
+                items(agendamentos, key = { it.id }) { ag ->
+                    AgendamentoCard(
+                        ag = ag,
+                        isSaving = isSaving,
+                        onConfirmar = { vm.confirmar(ag.id) },
+                        onReagendar = { novaDataHora -> vm.reagendar(ag.id, novaDataHora) {} },
+                    )
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AgendamentoCard(ag: Agendamento, onConfirmar: () -> Unit) {
+fun ReagendarDialog(
+    ag: Agendamento,
+    isSaving: Boolean,
+    onConfirmar: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val eProva = ag.tipo == "PROVA" || ag.tipo == "PRIMEIRA_PROVA_VESTIDO"
+    var dataStr by remember { mutableStateOf("") }
+    var horaStr by remember { mutableStateOf("") }
+    var showFichaAviso by remember { mutableStateOf(false) }
+    var expandedHora by remember { mutableStateOf(false) }
+    val slots = getSlotsForDate(dataStr)
+
+    if (showFichaAviso) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text("Nova ficha necessária", fontWeight = FontWeight.Bold) },
+            text = {
+                Text(
+                    "A data da prova foi alterada.\nEmita uma nova ficha de saída e entregue para a produção.",
+                    fontSize = 14.sp,
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = onDismiss,
+                    colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+                ) { Text("Entendido") }
+            },
+        )
+    } else {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = {
+                Column {
+                    Text("Reagendar", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text(ag.nomeCliente ?: "—", fontSize = 13.sp, color = Gray500)
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    DatePickerField(
+                        label = "Nova data *",
+                        value = dataStr,
+                        onDateSelected = { dataStr = it; horaStr = "" },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    ExposedDropdownMenuBox(
+                        expanded = expandedHora,
+                        onExpandedChange = { if (dataStr.isNotBlank() && slots.isNotEmpty()) expandedHora = it },
+                    ) {
+                        OutlinedTextField(
+                            value = when {
+                                horaStr.isNotBlank() -> horaStr
+                                dataStr.isNotBlank() && slots.isEmpty() -> "Sem horários (Dom)"
+                                else -> "Selecione..."
+                            },
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Novo horário *") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandedHora) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            shape = RoundedCornerShape(10.dp),
+                            enabled = dataStr.isNotBlank() && slots.isNotEmpty(),
+                        )
+                        ExposedDropdownMenu(expanded = expandedHora, onDismissRequest = { expandedHora = false }) {
+                            slots.forEach { h ->
+                                DropdownMenuItem(
+                                    text = { Text(h) },
+                                    onClick = { horaStr = h; expandedHora = false },
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val novaDataHora = "${dataStr}T${horaStr}:00"
+                        onConfirmar(novaDataHora)
+                        if (eProva) showFichaAviso = true
+                    },
+                    enabled = dataStr.isNotBlank() && horaStr.isNotBlank() && !isSaving,
+                    colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+                ) {
+                    if (isSaving) CircularProgressIndicator(Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
+                    else Text("Confirmar")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = onDismiss) { Text("Cancelar") }
+            },
+        )
+    }
+}
+
+@Composable
+fun AgendamentoCard(
+    ag: Agendamento,
+    isSaving: Boolean,
+    onConfirmar: () -> Unit,
+    onReagendar: (String) -> Unit,
+) {
+    var showReagendar by remember { mutableStateOf(false) }
+
+    if (showReagendar) {
+        ReagendarDialog(
+            ag = ag,
+            isSaving = isSaving,
+            onConfirmar = { novaDataHora ->
+                onReagendar(novaDataHora)
+                showReagendar = false
+            },
+            onDismiss = { showReagendar = false },
+        )
+    }
+
     val (corTexto, corFundo) = when (ag.status) {
         "CONFIRMADO" -> Green600 to Green100
         else         -> Amber500 to Amber100
@@ -245,23 +405,28 @@ fun AgendamentoCard(ag: Agendamento, onConfirmar: () -> Unit) {
         Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.widthIn(min = 44.dp)) {
-                Text(ag.hora?.takeIf { it.isNotBlank() } ?: "--:--", fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Blue600)
-                val dataExib = ag.data.take(10).let { d ->
-                    if (d.length >= 10) "${d.substring(8, 10)}/${d.substring(5, 7)}" else d.ifBlank { "—" }
-                }
+                val horaExib = ag.dataHora?.let { dh ->
+                    if (dh.length >= 16) dh.substring(11, 16) else null
+                } ?: "--:--"
+                Text(horaExib, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Blue600)
+                val dataExib = ag.dataHora?.take(10)?.let { d ->
+                    if (d.length >= 10) "${d.substring(8, 10)}/${d.substring(5, 7)}" else d
+                } ?: "—"
                 Text(dataExib, fontSize = 11.sp, color = Gray500)
             }
+            val telExibir = ag.telefone ?: ag.cliente?.telefone
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(ag.clienteNome.ifBlank { "—" }, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Gray900)
+                Text(ag.nomeCliente?.ifBlank { "—" } ?: "—", fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Gray900)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     AgChip(tipoAgLabel(ag.tipo))
                     if (!ag.tipoCliente.isNullOrBlank()) AgChip(ag.tipoCliente!!)
                 }
-                if (!ag.traje.isNullOrBlank())       Text(ag.traje!!, fontSize = 11.sp, color = Gray500)
-                if (!ag.observacoes.isNullOrBlank()) Text(ag.observacoes!!, fontSize = 11.sp, color = Gray500)
-                if (!ag.clienteTelefone.isNullOrBlank()) Text(ag.clienteTelefone!!, fontSize = 11.sp, color = Gray500)
+                if (!ag.eventoNome.isNullOrBlank()) Text(ag.eventoNome!!, fontSize = 11.sp, color = Gray500)
+                if (!ag.observacao.isNullOrBlank()) Text(ag.observacao!!, fontSize = 11.sp, color = Gray500)
+                if (!telExibir.isNullOrBlank()) Text(telExibir, fontSize = 11.sp, color = Gray500)
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                WaBotao(telExibir)
                 Surface(color = corFundo, shape = RoundedCornerShape(6.dp)) {
                     Text(ag.status, color = corTexto, fontSize = 11.sp, fontWeight = FontWeight.Medium,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
@@ -277,6 +442,16 @@ fun AgendamentoCard(ag: Agendamento, onConfirmar: () -> Unit) {
                         Spacer(Modifier.width(4.dp))
                         Text("Confirmar", fontSize = 11.sp)
                     }
+                }
+                OutlinedButton(
+                    onClick = { showReagendar = true },
+                    shape = RoundedCornerShape(6.dp),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                    modifier = Modifier.height(30.dp),
+                ) {
+                    Icon(Icons.Default.DateRange, null, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(3.dp))
+                    Text("Reagendar", fontSize = 11.sp)
                 }
             }
         }

@@ -31,13 +31,17 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.data.api.NetworkModule
 import com.mrjack.dressflow.data.model.*
+import com.mrjack.dressflow.ui.components.WaBotao
 import com.mrjack.dressflow.ui.theme.*
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Calendar
 
 // ─── ViewModel de Relatórios ──────────────────────────────────────────────────
@@ -70,7 +74,9 @@ class VendasRelatorioViewModel(app: Application) : AndroidViewModel(app) {
     fun carregarDia() {
         viewModelScope.launch {
             isLoadingDia.value = true
-            locacoesDia.value = try { api.listarVendasDiaPorData(dataDia.value).body() ?: emptyList() } catch (_: Exception) { emptyList() }
+            locacoesDia.value = try {
+                withContext(Dispatchers.IO) { api.listarVendasDiaPorData(dataDia.value).body() ?: emptyList() }
+            } catch (_: Exception) { emptyList() }
             isLoadingDia.value = false
         }
     }
@@ -78,10 +84,13 @@ class VendasRelatorioViewModel(app: Application) : AndroidViewModel(app) {
     fun carregarMes() {
         viewModelScope.launch {
             isLoadingMes.value = true
-            val resp = try { api.listarVendasMes(mesSel.value).body() } catch (_: Exception) { null }
+            // Paralelo: busca vendas do mês e resumo financeiro ao mesmo tempo
+            val dVendas = async(Dispatchers.IO) { try { api.listarVendasMes(mesSel.value).body() } catch (_: Exception) { null } }
+            val dFinanc = async(Dispatchers.IO) { try { api.financeiroResumo(mesSel.value).body() } catch (_: Exception) { null } }
+            val resp = dVendas.await()
             locacoesMes.value = resp?.locacoes ?: emptyList()
-            statsMes.value = resp?.stats
-            financeiro.value = try { api.financeiroResumo(mesSel.value).body() } catch (_: Exception) { null }
+            statsMes.value    = resp?.stats
+            financeiro.value  = dFinanc.await()
             isLoadingMes.value = false
         }
     }
@@ -217,7 +226,8 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
             "traje"          to form.traje,
             "evento"         to form.evento.ifBlank { null },
             "dataEvento"     to form.dataEvento,
-            "formaPagamento" to form.formaPagamento,
+            "formaPagamento" to (form.formasPagamento.firstOrNull() ?: form.formaPagamento),
+            "formasPagamento" to if (form.formasPagamento.size > 1) com.google.gson.Gson().toJson(form.formasPagamento.toList()) else null,
             "valor"          to form.valor.replace(",", ".").toDoubleOrNull(),
             "parcelas"       to form.parcelas.toIntOrNull(),
             "sexo"           to form.sexo,
@@ -278,6 +288,7 @@ data class LocacaoForm(
     var evento: String = "",
     var dataEvento: String = "",
     var formaPagamento: String = "Dinheiro",
+    var formasPagamento: Set<String> = emptySet(), // múltiplas formas selecionadas
     var valorBase: String = "",
     var desconto: String = "0",
     var valor: String = "",
@@ -573,10 +584,11 @@ fun VendasStatCol(label: String, valor: String, cor: Color) {
 fun VendasDiaRow(l: Locacao) {
     val cancelado = l.status == "CANCELADO"
     val (tipoBg, tipoCor, tipoLabel) = when {
-        cancelado        -> Triple(Red100, Red500, "Perdido")
-        l.tipo == "LOCACAO"   -> Triple(Blue100, Blue600, "Locação")
-        l.tipo == "ORCAMENTO" -> Triple(Yellow50, Color(0xFFB45309), "Orçamento")
-        else             -> Triple(Green100, Green600, "Venda")
+        cancelado              -> Triple(Red100, Red500, "Perdido")
+        l.tipo == "LOCACAO"    -> Triple(Blue100, Blue600, "Locação")
+        l.tipo == "ORCAMENTO"  -> Triple(Yellow50, Color(0xFFB45309), "Orçamento")
+        l.tipo == "CONFECCAO"  -> Triple(Color(0xFFEDE9FE), Color(0xFF7C3AED), "Confecção")
+        else                   -> Triple(Green100, Green600, "Venda")
     }
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
@@ -602,6 +614,7 @@ fun VendasDiaRow(l: Locacao) {
             brl(l.valor.toDoubleOrNull() ?: 0.0),
             Modifier.weight(1f), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End,
         )
+        WaBotao(l.cliente?.telefone, modifier = Modifier.size(32.dp))
     }
 }
 
@@ -1286,9 +1299,9 @@ fun LocacaoFormScreen(
             // ── TIPO DE REGISTRO ──────────────────────────────────────────────
             Text("TIPO DE REGISTRO", fontSize = 11.sp, color = Gray500, fontWeight = FontWeight.SemiBold)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("LOCACAO" to "Locação", "ORCAMENTO" to "Orçamento", "VENDA" to "Venda").forEach { (v, label) ->
+                listOf("LOCACAO" to "Locação", "ORCAMENTO" to "Orçamento", "VENDA" to "Venda", "CONFECCAO" to "Confecção").forEach { (v, label) ->
                     val selected = form.tipo == v
-                    val cor = when { selected && v == "LOCACAO" -> Blue600; selected && v == "ORCAMENTO" -> Color(0xFFD97706); selected -> Green600; else -> null }
+                    val cor = when { selected && v == "LOCACAO" -> Blue600; selected && v == "ORCAMENTO" -> Color(0xFFD97706); selected && v == "CONFECCAO" -> Color(0xFF7C3AED); selected -> Green600; else -> null }
                     if (selected && cor != null) {
                         Button(onClick = {}, colors = ButtonDefaults.buttonColors(containerColor = cor), shape = RoundedCornerShape(8.dp), contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)) {
                             Text(label, fontSize = 13.sp)
@@ -1575,16 +1588,28 @@ fun LocacaoFormScreen(
                 )
             }
 
-            // Forma de pagamento
-            Text("Forma de pagamento *", fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium)
+            // Forma(s) de pagamento — multi-seleção
+            Text("Forma(s) de pagamento *", fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium)
+            val formasAtivas = form.formasPagamento.ifEmpty { setOf(form.formaPagamento) }
             formasPagamento.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { fp ->
-                        FilterChip(selected = form.formaPagamento == fp, onClick = { form = form.copy(formaPagamento = fp, parcelas = "1") },
-                            label = { Text(fp, fontSize = 11.sp) }, modifier = Modifier.weight(1f))
+                        val sel = formasAtivas.contains(fp)
+                        FilterChip(selected = sel, onClick = {
+                            val novas = if (sel) formasAtivas - fp else formasAtivas + fp
+                            val novasPrimaria = if (novas.isEmpty()) setOf(fp) else novas
+                            form = form.copy(
+                                formasPagamento = novasPrimaria,
+                                formaPagamento = novasPrimaria.first(),
+                                parcelas = if (sel && fp == "Boleto") "1" else form.parcelas,
+                            )
+                        }, label = { Text(fp, fontSize = 11.sp) }, modifier = Modifier.weight(1f))
                     }
                     repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
+            }
+            if (formasAtivas.size > 1) {
+                Text("Selecionadas: ${formasAtivas.joinToString(" + ")}", fontSize = 11.sp, color = Color(0xFF2563EB), fontWeight = FontWeight.Medium)
             }
 
             // ── BOLETO ────────────────────────────────────────────────────────

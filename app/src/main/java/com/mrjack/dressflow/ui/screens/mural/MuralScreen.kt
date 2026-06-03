@@ -1,6 +1,9 @@
 package com.mrjack.dressflow.ui.screens.mural
 
 import android.app.Application
+import android.graphics.BitmapFactory
+import android.media.MediaPlayer
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,12 +13,16 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -25,15 +32,27 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.data.api.NetworkModule
 import com.mrjack.dressflow.data.api.PrefsKeys
 import com.mrjack.dressflow.data.api.dataStore
+import com.mrjack.dressflow.data.model.ConviteSecreto
 import com.mrjack.dressflow.data.model.MuralCanal
 import com.mrjack.dressflow.data.model.MuralMensagem
 import com.mrjack.dressflow.data.model.Vendedor
 import com.mrjack.dressflow.ui.theme.*
+import io.socket.client.IO
+import io.socket.client.Socket as IoSocket
+import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
+
+private const val GATEWAY_URL_MURAL = "https://optimistic-peace-production-0a23.up.railway.app"
 
 class MuralViewModel(app: Application) : AndroidViewModel(app) {
     private val api = NetworkModule.provideApiService(app)
@@ -44,13 +63,57 @@ class MuralViewModel(app: Application) : AndroidViewModel(app) {
     val isSending = MutableStateFlow(false)
     var meId = 0
 
+    val totalNaoLidas = MutableStateFlow(0)
+    val conviteSecreto = MutableStateFlow<ConviteSecreto?>(null) // notificação global
+
+    private var ultimaMsgIdAviso: Int? = null
+    private val ctx = app.applicationContext
+    private var socketSecreto: IoSocket? = null
+
     init {
         viewModelScope.launch {
             meId = app.dataStore.data.first().let {
-                com.google.gson.Gson().fromJson(it[PrefsKeys.USER_JSON], com.mrjack.dressflow.data.model.UsuarioLogado::class.java)?.id ?: 0
+                Gson().fromJson(it[PrefsKeys.USER_JSON], com.mrjack.dressflow.data.model.UsuarioLogado::class.java)?.id ?: 0
             }
             carregarCanais()
+            iniciarPollingNaoLidas()
+            conectarSocketSecreto()
         }
+    }
+
+    private fun iniciarPollingNaoLidas() {
+        viewModelScope.launch {
+            while (isActive) {
+                try {
+                    val lista = withContext(Dispatchers.IO) { api.listarCanais().body() ?: emptyList() }
+                    val total = lista.sumOf { it.count?.mensagens ?: 0 }
+                    totalNaoLidas.value = total
+                    canais.value = lista
+
+                    // Verifica canal de Avisos em paralelo com a atualização de badges
+                    val avisos = lista.find { it.nome.contains("Avisos", ignoreCase = true) }
+                    if (avisos != null && (avisos.count?.mensagens ?: 0) > 0) {
+                        val msgs = withContext(Dispatchers.IO) { api.listarMensagens(avisos.id).body() }
+                        val ultimaId = msgs?.lastOrNull()?.id
+                        if (ultimaId != null && ultimaId != ultimaMsgIdAviso) {
+                            if (ultimaMsgIdAviso != null) tocarAviso()
+                            ultimaMsgIdAviso = ultimaId
+                        }
+                    }
+                } catch (_: Exception) {}
+                delay(30_000L)
+            }
+        }
+    }
+
+    private fun tocarAviso() {
+        try {
+            val mp = MediaPlayer()
+            mp.setDataSource("https://mrjack.dressflow.com.br/aviso.mp3?v=3")
+            mp.setOnPreparedListener { it.start() }
+            mp.setOnCompletionListener { it.release() }
+            mp.prepareAsync()
+        } catch (_: Exception) {}
     }
 
     fun carregarCanais() {
@@ -113,6 +176,77 @@ class MuralViewModel(app: Application) : AndroidViewModel(app) {
             } catch (_: Exception) {}
         }
     }
+
+    // ── Chat Secreto ─────────────────────────────────────────────────────────────
+
+    fun convidarSecreto(paraId: Int) {
+        viewModelScope.launch {
+            try { api.convidarSecreto(mapOf("paraId" to paraId)) } catch (_: Exception) {}
+        }
+    }
+
+    fun aceitarSecreto(canalId: Int) {
+        viewModelScope.launch {
+            try {
+                api.aceitarSecreto(canalId)
+                carregarCanais()
+                val canal = canais.value.find { it.id == canalId }
+                if (canal != null) abrirCanal(canal)
+                conviteSecreto.value = null
+            } catch (_: Exception) { conviteSecreto.value = null }
+        }
+    }
+
+    fun recusarSecreto(canalId: Int) {
+        viewModelScope.launch {
+            try { api.recusarSecreto(canalId) } catch (_: Exception) {}
+            conviteSecreto.value = null
+        }
+    }
+
+    fun encerrarSecreto(canalId: Int) {
+        viewModelScope.launch {
+            try { api.encerrarSecreto(canalId) } catch (_: Exception) {}
+            canais.value = canais.value.filter { it.id != canalId }
+            if (canalAtivo.value?.id == canalId) { canalAtivo.value = null; mensagens.value = emptyList() }
+        }
+    }
+
+    private fun conectarSocketSecreto() {
+        viewModelScope.launch {
+            try {
+                val opts = IO.Options().apply { transports = arrayOf("websocket", "polling") }
+                val s = IO.socket(GATEWAY_URL_MURAL, opts)
+                s.on(IoSocket.EVENT_CONNECT) {
+                    if (meId > 0) s.emit("user:join", meId)
+                }
+                s.on("secreto:convite") { args ->
+                    val data = args.firstOrNull() as? JSONObject ?: return@on
+                    val conv = ConviteSecreto(
+                        canalId = data.optInt("canalId"),
+                        deId = data.optInt("deId"),
+                        deNome = data.optString("deNome", "Alguém"),
+                    )
+                    viewModelScope.launch { conviteSecreto.value = conv }
+                }
+                s.on("secreto:encerrado") { args ->
+                    val data = args.firstOrNull() as? JSONObject ?: return@on
+                    val canalId = data.optInt("canalId")
+                    viewModelScope.launch {
+                        canais.value = canais.value.filter { it.id != canalId }
+                        if (canalAtivo.value?.id == canalId) { canalAtivo.value = null; mensagens.value = emptyList() }
+                    }
+                }
+                s.connect()
+                socketSecreto = s
+            } catch (_: Exception) {}
+        }
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        try { socketSecreto?.off(); socketSecreto?.disconnect() } catch (_: Exception) {}
+    }
 }
 
 @Composable
@@ -123,7 +257,34 @@ fun MuralScreen(vm: MuralViewModel = viewModel()) {
     val isLoading by vm.isLoading.collectAsState()
     val usuarios by vm.usuarios.collectAsState()
     val isLoadingUsuarios by vm.isLoadingUsuarios.collectAsState()
+    val conviteSecreto by vm.conviteSecreto.collectAsState()
     var showDmDialog by remember { mutableStateOf(false) }
+
+    // ── Notificação global de convite secreto ─────────────────────────────────
+    val conv = conviteSecreto
+    if (conv != null) {
+        AlertDialog(
+            onDismissRequest = { vm.conviteSecreto.value = null },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("💣", fontSize = 24.sp)
+                    Text("Convite de chat secreto", fontWeight = FontWeight.Bold)
+                }
+            },
+            text = {
+                Text("${conv.deNome} te convidou para um chat onde as mensagens se apagam automaticamente em 1 minuto.")
+            },
+            confirmButton = {
+                Button(onClick = { vm.aceitarSecreto(conv.canalId) },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEA580C))) {
+                    Text("🔥 Aceitar")
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { vm.recusarSecreto(conv.canalId) }) { Text("Recusar") }
+            },
+        )
+    }
 
     if (showDmDialog) {
         LaunchedEffect(Unit) { vm.carregarUsuarios() }
@@ -188,6 +349,7 @@ fun MuralScreen(vm: MuralViewModel = viewModel()) {
                 val publicos = canais.filter { it.tipo == "PUBLICO" }
                 val privados = canais.filter { it.tipo == "PRIVADO" }
                 val dms = canais.filter { it.tipo == "DIRETO" }
+                val secretos = canais.filter { it.tipo == "SECRETO" && it.conviteStatus == "ATIVO" }
 
                 if (publicos.isNotEmpty()) {
                     item {
@@ -217,7 +379,32 @@ fun MuralScreen(vm: MuralViewModel = viewModel()) {
                         )
                     }
                 }
-                items(dms) { c -> CanalItem(c, c.id == canalAtivo?.id) { vm.abrirCanal(c) } }
+                items(dms) { c ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.weight(1f)) { CanalItem(c, c.id == canalAtivo?.id) { vm.abrirCanal(c) } }
+                        // Botão 💣 para convidar para chat secreto
+                        val outroId = c.membros?.firstOrNull { it.usuarioId != vm.meId }?.usuarioId
+                        if (outroId != null) {
+                            Text("💣", fontSize = 16.sp, modifier = Modifier
+                                .clickable { vm.convidarSecreto(outroId) }
+                                .padding(horizontal = 8.dp))
+                        }
+                    }
+                }
+                if (secretos.isNotEmpty()) {
+                    item {
+                        Text("💣 SECRETO", fontSize = 10.sp, color = Color(0xFFEA580C).copy(0.8f), fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    }
+                    items(secretos) { c ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { CanalItem(c, c.id == canalAtivo?.id) { vm.abrirCanal(c) } }
+                            Text("🗑️", fontSize = 14.sp, modifier = Modifier
+                                .clickable { vm.encerrarSecreto(c.id) }
+                                .padding(horizontal = 8.dp))
+                        }
+                    }
+                }
             }
         }
 
@@ -235,19 +422,45 @@ fun MuralScreen(vm: MuralViewModel = viewModel()) {
                 }
             }
 
+            val isSecreto = canalAtivo?.autoDestruicao == true
+            val ctx = LocalContext.current
+            val bgBitmap = remember(isSecreto) {
+                if (isSecreto) runCatching {
+                    ctx.assets.open("babychatsecreto.jpg").use { BitmapFactory.decodeStream(it) }
+                }.getOrNull() else null
+            }
+
+            // Auto-remove mensagens expiradas (chat secreto)
+            LaunchedEffect(isSecreto) {
+                if (!isSecreto) return@LaunchedEffect
+                while (true) {
+                    delay(2000)
+                    val agora = System.currentTimeMillis()
+                    // parse ISO8601 e remove expiradas
+                    // (simplificado — confia no backend para deletar)
+                }
+            }
+
             if (isLoading) {
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
                     CircularProgressIndicator(color = Blue600)
                 }
             } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.weight(1f).padding(horizontal = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    contentPadding = PaddingValues(vertical = 12.dp),
-                ) {
-                    items(mensagens, key = { it.id }) { msg ->
-                        MensagemBubble(msg, isMe = msg.autorId == vm.meId)
+                Box(Modifier.weight(1f)) {
+                    // Background secreto
+                    if (bgBitmap != null) {
+                        Image(bitmap = bgBitmap.asImageBitmap(), contentDescription = null,
+                            modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        contentPadding = PaddingValues(vertical = 12.dp),
+                    ) {
+                        items(mensagens, key = { it.id }) { msg ->
+                            MensagemBubble(msg, isMe = msg.autorId == vm.meId, secreto = isSecreto)
+                        }
                     }
                 }
             }
@@ -316,13 +529,29 @@ fun CanalItem(canal: MuralCanal, ativo: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-fun MensagemBubble(msg: MuralMensagem, isMe: Boolean) {
+fun MensagemBubble(msg: MuralMensagem, isMe: Boolean, secreto: Boolean = false) {
+    // Contagem regressiva para autodestruição
+    var segundos by remember(msg.id) { mutableStateOf<Int?>(null) }
+    LaunchedEffect(msg.deletaEm) {
+        if (msg.deletaEm == null) return@LaunchedEffect
+        while (true) {
+            val diff = try {
+                val t = ZonedDateTime.parse(msg.deletaEm).toInstant().toEpochMilli()
+                ((t - System.currentTimeMillis()) / 1000).toInt().coerceAtLeast(0)
+            } catch (_: Exception) { 0 }
+            segundos = diff
+            if (diff <= 0) break
+            delay(1000)
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = if (isMe) Alignment.End else Alignment.Start,
     ) {
         if (!isMe) {
-            Text(msg.autorNome, fontSize = 11.sp, color = Gray500, modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
+            Text(msg.autorNome, fontSize = 11.sp, color = if (secreto) Color.White.copy(0.8f) else Gray500,
+                modifier = Modifier.padding(start = 4.dp, bottom = 2.dp))
         }
         Surface(
             shape = RoundedCornerShape(
@@ -330,17 +559,28 @@ fun MensagemBubble(msg: MuralMensagem, isMe: Boolean) {
                 bottomStart = if (isMe) 16.dp else 4.dp,
                 bottomEnd = if (isMe) 4.dp else 16.dp,
             ),
-            color = if (isMe) Blue600 else Color.White,
-            shadowElevation = 1.dp,
+            color = if (isMe) Color(0xFF1A1A2E) else Color.Black.copy(0.7f),
+            shadowElevation = 2.dp,
         ) {
-            Text(
-                msg.conteudo ?: "(arquivo)",
-                color = if (isMe) Color.White else Gray900,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            )
+            Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                Text(
+                    msg.conteudo ?: "(arquivo)",
+                    color = Color.White,
+                    fontSize = 14.sp,
+                )
+                if (segundos != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("💣", fontSize = 10.sp)
+                        Text("${segundos}s", fontSize = 10.sp,
+                            color = if ((segundos ?: 60) <= 10) Color(0xFFEF4444) else Color(0xFFFB923C),
+                            fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
-        Text(fmtHora(msg.createdAt), fontSize = 10.sp, color = Gray500, modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp))
+        Text(fmtHora(msg.createdAt), fontSize = 10.sp,
+            color = if (secreto) Color.White.copy(0.7f) else Gray500,
+            modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = 2.dp))
     }
 }
 
