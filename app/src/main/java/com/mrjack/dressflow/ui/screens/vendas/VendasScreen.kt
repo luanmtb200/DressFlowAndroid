@@ -287,7 +287,7 @@ data class LocacaoForm(
     var traje: String = "",
     var evento: String = "",
     var dataEvento: String = "",
-    var formaPagamento: String = "Dinheiro",
+    var formaPagamento: String = "",
     var formasPagamento: Set<String> = emptySet(), // múltiplas formas selecionadas
     var valorBase: String = "",
     var desconto: String = "0",
@@ -1202,6 +1202,7 @@ fun LocacaoFormScreen(
             formFinal.traje.isBlank()      -> vm.erro.value = "Informe o traje"
             formFinal.dataEvento.isBlank() -> vm.erro.value = "Informe a data do evento"
             formFinal.valor.isBlank()      -> vm.erro.value = "Informe o valor"
+            formFinal.formaPagamento.isBlank() -> vm.erro.value = "Selecione a forma de pagamento"
             formFinal.tipo == "ORCAMENTO" && formFinal.motivoNaoFechar.isBlank() -> vm.erro.value = "Informe o motivo de não fechar"
             formFinal.menorDeIdade && formFinal.nomeResponsavel.isBlank() -> vm.erro.value = "Informe o nome do responsável"
             else -> {
@@ -1590,14 +1591,14 @@ fun LocacaoFormScreen(
 
             // Forma(s) de pagamento — multi-seleção
             Text("Forma(s) de pagamento *", fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium)
-            val formasAtivas = form.formasPagamento.ifEmpty { setOf(form.formaPagamento) }
+            val formasAtivas = form.formasPagamento.ifEmpty { if (form.formaPagamento.isBlank()) emptySet() else setOf(form.formaPagamento) }
             formasPagamento.chunked(3).forEach { row ->
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     row.forEach { fp ->
                         val sel = formasAtivas.contains(fp)
                         FilterChip(selected = sel, onClick = {
-                            val novas = if (sel) formasAtivas - fp else formasAtivas + fp
-                            val novasPrimaria = if (novas.isEmpty()) setOf(fp) else novas
+                            val novas = (if (sel) formasAtivas - fp else formasAtivas + fp) - ""
+                            val novasPrimaria = if (novas.isEmpty() && !sel) setOf(fp) else novas
                             form = form.copy(
                                 formasPagamento = novasPrimaria,
                                 formaPagamento = novasPrimaria.first(),
