@@ -226,8 +226,8 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
             "traje"          to form.traje,
             "evento"         to form.evento.ifBlank { null },
             "dataEvento"     to form.dataEvento,
-            "formaPagamento" to (form.formasPagamento.firstOrNull() ?: form.formaPagamento),
-            "formasPagamento" to if (form.formasPagamento.size > 1) com.google.gson.Gson().toJson(form.formasPagamento.toList()) else null,
+            "formaPagamento" to if (form.tipo == "ORCAMENTO") "Orçamento" else (form.formasPagamento.firstOrNull() ?: form.formaPagamento),
+            "formasPagamento" to if (form.tipo != "ORCAMENTO" && form.formasPagamento.size > 1) com.google.gson.Gson().toJson(form.formasPagamento.toList()) else null,
             "valor"          to form.valor.replace(",", ".").toDoubleOrNull(),
             "parcelas"       to form.parcelas.toIntOrNull(),
             "sexo"           to form.sexo,
@@ -1202,7 +1202,7 @@ fun LocacaoFormScreen(
             formFinal.traje.isBlank()      -> vm.erro.value = "Informe o traje"
             formFinal.dataEvento.isBlank() -> vm.erro.value = "Informe a data do evento"
             formFinal.valor.isBlank()      -> vm.erro.value = "Informe o valor"
-            formFinal.formaPagamento.isBlank() -> vm.erro.value = "Selecione a forma de pagamento"
+            formFinal.tipo != "ORCAMENTO" && formFinal.formaPagamento.isBlank() -> vm.erro.value = "Selecione a forma de pagamento"
             formFinal.tipo == "ORCAMENTO" && formFinal.motivoNaoFechar.isBlank() -> vm.erro.value = "Informe o motivo de não fechar"
             formFinal.menorDeIdade && formFinal.nomeResponsavel.isBlank() -> vm.erro.value = "Informe o nome do responsável"
             else -> {
@@ -1264,7 +1264,7 @@ fun LocacaoFormScreen(
     }
 
     val formasPagamento = listOf(
-        "Dinheiro", "PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Cheque", "Parceria", "Permuta", "Outro",
+        "Dinheiro", "PIX", "Cartão de Crédito", "Cartão de Débito", "Boleto", "Cheque", "Parceria", "Permuta",
     )
 
     Column(Modifier.fillMaxSize()) {
@@ -1589,28 +1589,40 @@ fun LocacaoFormScreen(
                 )
             }
 
-            // Forma(s) de pagamento — multi-seleção
+            // Forma(s) de pagamento — multi-seleção (bloqueado para orçamentos)
             Text("Forma(s) de pagamento *", fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium)
-            val formasAtivas = form.formasPagamento.ifEmpty { if (form.formaPagamento.isBlank()) emptySet() else setOf(form.formaPagamento) }
-            formasPagamento.chunked(3).forEach { row ->
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    row.forEach { fp ->
-                        val sel = formasAtivas.contains(fp)
-                        FilterChip(selected = sel, onClick = {
-                            val novas = (if (sel) formasAtivas - fp else formasAtivas + fp) - ""
-                            val novasPrimaria = if (novas.isEmpty() && !sel) setOf(fp) else novas
-                            form = form.copy(
-                                formasPagamento = novasPrimaria,
-                                formaPagamento = novasPrimaria.first(),
-                                parcelas = if (sel && fp == "Boleto") "1" else form.parcelas,
-                            )
-                        }, label = { Text(fp, fontSize = 11.sp) }, modifier = Modifier.weight(1f))
-                    }
-                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+            if (form.tipo == "ORCAMENTO") {
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = Color(0xFFF3F4F6),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFD1D5DB)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Orçamento", modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        fontSize = 14.sp, color = Color(0xFF9CA3AF))
                 }
-            }
-            if (formasAtivas.size > 1) {
-                Text("Selecionadas: ${formasAtivas.joinToString(" + ")}", fontSize = 11.sp, color = Color(0xFF2563EB), fontWeight = FontWeight.Medium)
+            } else {
+                val formasAtivas = form.formasPagamento.ifEmpty { if (form.formaPagamento.isBlank()) emptySet() else setOf(form.formaPagamento) }
+                formasPagamento.chunked(3).forEach { row ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        row.forEach { fp ->
+                            val sel = formasAtivas.contains(fp)
+                            FilterChip(selected = sel, onClick = {
+                                val novas = (if (sel) formasAtivas - fp else formasAtivas + fp) - ""
+                                val novasPrimaria = if (novas.isEmpty() && !sel) setOf(fp) else novas
+                                form = form.copy(
+                                    formasPagamento = novasPrimaria,
+                                    formaPagamento = novasPrimaria.first(),
+                                    parcelas = if (sel && fp == "Boleto") "1" else form.parcelas,
+                                )
+                            }, label = { Text(fp, fontSize = 11.sp) }, modifier = Modifier.weight(1f))
+                        }
+                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                    }
+                }
+                if (formasAtivas.size > 1) {
+                    Text("Selecionadas: ${formasAtivas.joinToString(" + ")}", fontSize = 11.sp, color = Color(0xFF2563EB), fontWeight = FontWeight.Medium)
+                }
             }
 
             // ── BOLETO ────────────────────────────────────────────────────────

@@ -959,7 +959,6 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
         "PAI_FORMANDO" to "Pai do Formando", "MAE_FORMANDA" to "Mãe da Formanda",
         "DEBUTANTE" to "Debutante", "PRINCIPE_DEBUTANTE" to "Príncipe Debutante",
         "PAI_DEBUTANTE" to "Pai da Debutante", "MAE_DEBUTANTE" to "Mãe da Debutante",
-        "OUTROS" to "Outros",
     )
 
     fun buildEndereco() = listOf(rua, numero, bairro, cidade).filter { it.isNotBlank() }.joinToString(", ")
@@ -1210,7 +1209,6 @@ fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
         "PAI_FORMANDO" to "Pai do Formando", "MAE_FORMANDA" to "Mãe da Formanda",
         "DEBUTANTE" to "Debutante", "PRINCIPE_DEBUTANTE" to "Príncipe Debutante",
         "PAI_DEBUTANTE" to "Pai da Debutante", "MAE_DEBUTANTE" to "Mãe da Debutante",
-        "OUTROS" to "Outros",
     )
 
     Column(Modifier.fillMaxSize()) {
