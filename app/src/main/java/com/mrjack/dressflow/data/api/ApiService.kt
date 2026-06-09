@@ -281,4 +281,30 @@ interface ApiService {
 
     @POST("config-opcoes")
     suspend fun criarConfigOpcao(@Body body: Map<String, String>): Response<com.mrjack.dressflow.data.model.ConfigOpcao>
+
+    // ── Vouchers ──────────────────────────────────────────────────────────────
+    @GET("vouchers")
+    suspend fun listarVouchers(): Response<List<Voucher>>
+
+    @POST("vouchers")
+    suspend fun criarVoucher(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Voucher>
+
+    @PATCH("vouchers/{id}")
+    suspend fun atualizarVoucher(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Voucher>
+
+    @DELETE("vouchers/{id}")
+    suspend fun deletarVoucher(@Path("id") id: Int): Response<Unit>
+
+    // ── Propostas ─────────────────────────────────────────────────────────────
+    @GET("propostas")
+    suspend fun listarPropostas(): Response<List<Proposta>>
+
+    @POST("propostas")
+    suspend fun criarProposta(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Proposta>
+
+    @PATCH("propostas/{id}")
+    suspend fun atualizarProposta(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Proposta>
+
+    @DELETE("propostas/{id}")
+    suspend fun deletarProposta(@Path("id") id: Int): Response<Unit>
 }

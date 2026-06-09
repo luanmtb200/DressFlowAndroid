@@ -386,3 +386,39 @@ data class GatewayConversa(
     val canal: String = "whatsapp",
     val nome_contato: String? = null,
 )
+
+// ── Voucher ────────────────────────────────────────────────────────────────────
+data class Voucher(
+    val id: Int,
+    val percentual: Int,
+    val evento: String,
+    val validoAte: String,
+    val slug: String?,
+    val ativo: Boolean?,
+)
+
+// ── Proposta ───────────────────────────────────────────────────────────────────
+data class PropostaItem(
+    val id: Int?,
+    val imagemUrl: String,
+    val nome: String,
+    val descricao: String?,
+    val valorDe: Double?,
+    val valorPor: Double,
+)
+
+data class PropostaOpcional(
+    val id: Int?,
+    val nome: String,
+    val valorDe: Double?,
+    val valorPor: Double,
+)
+
+data class Proposta(
+    val id: Int,
+    val turma: String,
+    val slug: String?,
+    val ativo: Boolean?,
+    val itens: List<PropostaItem>?,
+    val opcionais: List<PropostaOpcional>?,
+)

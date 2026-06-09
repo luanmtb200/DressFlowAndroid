@@ -96,11 +96,21 @@ class PadronizacoesViewModel(app: Application) : AndroidViewModel(app) {
     val sucesso          = MutableStateFlow<String?>(null)
     val isDownloadingPdf = MutableStateFlow(false)
     val pdfErro          = MutableStateFlow<String?>(null)
+    // Vouchers
+    val voucherLista      = MutableStateFlow<List<Voucher>>(emptyList())
+    val isLoadingVoucher  = MutableStateFlow(false)
+    val isSavingVoucher   = MutableStateFlow(false)
+    // Propostas
+    val propostaLista     = MutableStateFlow<List<Proposta>>(emptyList())
+    val isLoadingProposta = MutableStateFlow(false)
+    val isSavingProposta  = MutableStateFlow(false)
     private var searchJob: Job? = null
 
     init {
         carregar()
         carregarTrajesPad()
+        carregarVouchers()
+        carregarPropostas()
         viewModelScope.launch {
             try { vendedores.value = api.listarVendedores().body() ?: emptyList() } catch (_: Exception) {}
         }
@@ -275,6 +285,88 @@ class PadronizacoesViewModel(app: Application) : AndroidViewModel(app) {
             } catch (e: Exception) { erro.value = e.message }
         }
     }
+
+    // ── Vouchers ──────────────────────────────────────────────────────────────
+
+    fun carregarVouchers() {
+        viewModelScope.launch {
+            isLoadingVoucher.value = true
+            try { voucherLista.value = api.listarVouchers().body() ?: emptyList() } catch (_: Exception) {}
+            finally { isLoadingVoucher.value = false }
+        }
+    }
+
+    fun criarVoucher(body: Map<String, Any?>, onDone: () -> Unit) {
+        viewModelScope.launch {
+            isSavingVoucher.value = true
+            try {
+                val resp = api.criarVoucher(body)
+                if (resp.isSuccessful) { carregarVouchers(); sucesso.value = "Voucher criado!"; onDone() }
+                else erro.value = "Erro ${resp.code()}"
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSavingVoucher.value = false }
+        }
+    }
+
+    fun atualizarVoucher(id: Int, body: Map<String, Any?>, onDone: () -> Unit) {
+        viewModelScope.launch {
+            isSavingVoucher.value = true
+            try {
+                val resp = api.atualizarVoucher(id, body)
+                if (resp.isSuccessful) { carregarVouchers(); sucesso.value = "Voucher atualizado!"; onDone() }
+                else erro.value = "Erro ${resp.code()}"
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSavingVoucher.value = false }
+        }
+    }
+
+    fun deletarVoucher(id: Int) {
+        viewModelScope.launch {
+            try { api.deletarVoucher(id); carregarVouchers() }
+            catch (e: Exception) { erro.value = e.message }
+        }
+    }
+
+    // ── Propostas ─────────────────────────────────────────────────────────────
+
+    fun carregarPropostas() {
+        viewModelScope.launch {
+            isLoadingProposta.value = true
+            try { propostaLista.value = api.listarPropostas().body() ?: emptyList() } catch (_: Exception) {}
+            finally { isLoadingProposta.value = false }
+        }
+    }
+
+    fun criarProposta(body: Map<String, Any?>, onDone: () -> Unit) {
+        viewModelScope.launch {
+            isSavingProposta.value = true
+            try {
+                val resp = api.criarProposta(body)
+                if (resp.isSuccessful) { carregarPropostas(); sucesso.value = "Proposta criada!"; onDone() }
+                else erro.value = "Erro ${resp.code()}"
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSavingProposta.value = false }
+        }
+    }
+
+    fun atualizarProposta(id: Int, body: Map<String, Any?>, onDone: () -> Unit) {
+        viewModelScope.launch {
+            isSavingProposta.value = true
+            try {
+                val resp = api.atualizarProposta(id, body)
+                if (resp.isSuccessful) { carregarPropostas(); sucesso.value = "Proposta atualizada!"; onDone() }
+                else erro.value = "Erro ${resp.code()}"
+            } catch (e: Exception) { erro.value = e.message }
+            finally { isSavingProposta.value = false }
+        }
+    }
+
+    fun deletarProposta(id: Int) {
+        viewModelScope.launch {
+            try { api.deletarProposta(id); carregarPropostas() }
+            catch (e: Exception) { erro.value = e.message }
+        }
+    }
 }
 
 // ─── Tela Principal ───────────────────────────────────────────────────────────
@@ -342,8 +434,8 @@ fun PadronizacoesScreen(vm: PadronizacoesViewModel = viewModel()) {
                             }
                         }
                     }
-                    TabRow(selectedTabIndex = tabIdx, containerColor = Color.White, contentColor = Blue600) {
-                        listOf("Padronizações", "Trajes", "Índice").forEachIndexed { i, label ->
+                    ScrollableTabRow(selectedTabIndex = tabIdx, containerColor = Color.White, contentColor = Blue600, edgePadding = 0.dp) {
+                        listOf("Padronizações", "Trajes", "Índice", "Vouchers", "Propostas").forEachIndexed { i, label ->
                             Tab(
                                 selected = tabIdx == i,
                                 onClick = { tabIdx = i },
@@ -392,6 +484,8 @@ fun PadronizacoesScreen(vm: PadronizacoesViewModel = viewModel()) {
                 }
                 1 -> TrajesPadronizacaoTab(vm)
                 2 -> IndiceTrajesTab(lista)
+                3 -> VouchersTab(vm)
+                4 -> PropostasTab(vm)
             }
         }
 
@@ -667,8 +761,9 @@ fun PadronizacaoDetalheScreen(
                         if (!p.cerimonialNome.isNullOrBlank()) {
                             InfoPadItem(if (isFormatura) "Comissão" else "Cerimonial", "${p.cerimonialNome}${if (!p.cerimonialTelefone.isNullOrBlank()) " – ${p.cerimonialTelefone}" else ""}")
                         }
-                        if (p.consultor != null || p.vendedor != null) {
-                            InfoPadItem("Consultor", (p.consultor ?: p.vendedor)!!.nome)
+                        val consultorNome = (p.consultor ?: p.vendedor)?.nome
+                        if (!consultorNome.isNullOrBlank()) {
+                            InfoPadItem("Consultor", consultorNome)
                         }
                     }
                 }
@@ -770,7 +865,7 @@ fun PadronizacaoDetalheScreen(
                         Row(Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Column(Modifier.weight(1f)) {
                                 Text(nome, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = Gray900)
-                                if (!loc?.traje.isNullOrBlank()) Text(loc!!.traje, fontSize = 11.sp, color = Gray500)
+                                if (!loc?.traje.isNullOrBlank()) Text(loc?.traje ?: "", fontSize = 11.sp, color = Gray500)
                             }
                         }
                     }
@@ -1667,7 +1762,7 @@ fun IndiceTrajesTab(lista: List<Padronizacao>) {
     val grupos = remember(doMes) {
         val map = mutableMapOf<String, Linha>()
         for (p in doMes) {
-            val nome = p.trajePadrinhos!!.nome
+            val nome = p.trajePadrinhos?.nome ?: continue
             val qty = p.numeroPadrinhos ?: 0
             val s = semana(p.dataEvento)
             val l = map.getOrPut(nome) { Linha() }
@@ -1766,4 +1861,403 @@ fun IndiceTrajesTab(lista: List<Padronizacao>) {
             }
         }
     }
+}
+
+// ─── Tab: Vouchers ────────────────────────────────────────────────────────────
+
+@Composable
+fun VouchersTab(vm: PadronizacoesViewModel) {
+    val lista        by vm.voucherLista.collectAsState()
+    val isLoading    by vm.isLoadingVoucher.collectAsState()
+    val isSaving     by vm.isSavingVoucher.collectAsState()
+    var modalAberto  by remember { mutableStateOf(false) }
+    var editando     by remember { mutableStateOf<Voucher?>(null) }
+    val context      = LocalContext.current
+    val publicBase   = "https://${BuildConfig.LOJA_SLUG}.dressflow.com.br"
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Button(
+                onClick = { editando = null; modalAberto = true },
+                colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Novo Voucher")
+            }
+        }
+
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Blue600)
+            }
+        } else if (lista.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Nenhum voucher cadastrado.", color = Gray500, fontSize = 15.sp)
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(lista, key = { it.id }) { v ->
+                    VoucherCard(
+                        v = v,
+                        onEdit   = { editando = v; modalAberto = true },
+                        onDelete = { vm.deletarVoucher(v.id) },
+                        onLink   = {
+                            val slug = v.slug?.takeIf { it.isNotBlank() } ?: "${v.id}"
+                            val url  = "$publicBase/voucher/$slug"
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, url)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Compartilhar voucher"))
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    if (modalAberto) {
+        VoucherModal(
+            voucher  = editando,
+            isSaving = isSaving,
+            onSalvar = { percentual, evento, validoAte, slug ->
+                val body = buildMap<String, Any?> {
+                    put("percentual", percentual)
+                    put("evento", evento)
+                    put("validoAte", validoAte)
+                    if (slug.isNotBlank()) put("slug", slug)
+                }
+                val e = editando
+                if (e == null) vm.criarVoucher(body)    { modalAberto = false; editando = null }
+                else           vm.atualizarVoucher(e.id, body) { modalAberto = false; editando = null }
+            },
+            onFechar = { modalAberto = false; editando = null },
+        )
+    }
+}
+
+@Composable
+private fun VoucherCard(v: Voucher, onEdit: () -> Unit, onDelete: () -> Unit, onLink: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(1.dp),
+        border = BorderStroke(1.dp, Gray200),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(color = Color(0xFFFEF3C7), shape = RoundedCornerShape(8.dp)) {
+                    Text(
+                        "${v.percentual}% de desconto",
+                        fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFF92400E),
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                if (v.ativo == false) {
+                    Surface(color = Gray100, shape = RoundedCornerShape(20.dp)) {
+                        Text("Inativo", color = Gray500, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                    }
+                }
+            }
+            Text(v.evento, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Gray900)
+            Text("Válido até: ${fmtData(v.validoAte)}", fontSize = 12.sp, color = Gray500)
+            if (!v.slug.isNullOrBlank()) {
+                Text("Slug: ${v.slug}", fontSize = 11.sp, color = Gray500)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onLink,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
+                ) {
+                    Icon(Icons.Default.Share, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Link", fontSize = 12.sp)
+                }
+                OutlinedButton(
+                    onClick = onEdit,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
+                ) { Text("Editar", fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = onDelete,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Red500),
+                    border = BorderStroke(1.dp, Red300),
+                ) { Text("Excluir", fontSize = 12.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun VoucherModal(
+    voucher: Voucher?,
+    isSaving: Boolean,
+    onSalvar: (percentual: Int, evento: String, validoAte: String, slug: String) -> Unit,
+    onFechar: () -> Unit,
+) {
+    var percentual by remember(voucher) { mutableStateOf(voucher?.percentual?.toString() ?: "") }
+    var evento     by remember(voucher) { mutableStateOf(voucher?.evento ?: "") }
+    var validoAte  by remember(voucher) { mutableStateOf(voucher?.validoAte?.take(10) ?: "") }
+    var slug       by remember(voucher) { mutableStateOf(voucher?.slug ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onFechar,
+        title = { Text(if (voucher == null) "Novo Voucher" else "Editar Voucher") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = percentual, onValueChange = { percentual = it },
+                    label = { Text("Desconto (%) *") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                OutlinedTextField(
+                    value = evento, onValueChange = { evento = it },
+                    label = { Text("Evento *") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                )
+                OutlinedTextField(
+                    value = validoAte, onValueChange = { validoAte = it },
+                    label = { Text("Válido até (AAAA-MM-DD) *") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                )
+                OutlinedTextField(
+                    value = slug, onValueChange = { slug = it },
+                    label = { Text("Slug (URL amigável)") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                )
+            }
+        },
+        confirmButton = {
+            val pct = percentual.toIntOrNull()
+            Button(
+                onClick = { if (pct != null && evento.isNotBlank() && validoAte.isNotBlank()) onSalvar(pct, evento, validoAte, slug) },
+                enabled = !isSaving && percentual.toIntOrNull() != null && evento.isNotBlank() && validoAte.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+            ) {
+                if (isSaving) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                else Text("Salvar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onFechar) { Text("Cancelar") } },
+        shape = RoundedCornerShape(16.dp),
+    )
+}
+
+// ─── Tab: Propostas ───────────────────────────────────────────────────────────
+
+@Composable
+fun PropostasTab(vm: PadronizacoesViewModel) {
+    val lista        by vm.propostaLista.collectAsState()
+    val isLoading    by vm.isLoadingProposta.collectAsState()
+    val isSaving     by vm.isSavingProposta.collectAsState()
+    var modalAberto  by remember { mutableStateOf(false) }
+    var editando     by remember { mutableStateOf<Proposta?>(null) }
+    val context      = LocalContext.current
+    val publicBase   = "https://${BuildConfig.LOJA_SLUG}.dressflow.com.br"
+
+    Column(Modifier.fillMaxSize()) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.End,
+        ) {
+            Button(
+                onClick = { editando = null; modalAberto = true },
+                colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+                shape = RoundedCornerShape(10.dp),
+            ) {
+                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("Nova Proposta")
+            }
+        }
+
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = Blue600)
+            }
+        } else if (lista.isEmpty()) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("Nenhuma proposta cadastrada.", color = Gray500, fontSize = 15.sp)
+            }
+        } else {
+            LazyColumn(
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 0.dp, bottom = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                items(lista, key = { it.id }) { p ->
+                    PropostaCard(
+                        p = p,
+                        onEdit   = { editando = p; modalAberto = true },
+                        onDelete = { vm.deletarProposta(p.id) },
+                        onLink   = {
+                            val slug = p.slug?.takeIf { it.isNotBlank() } ?: "${p.id}"
+                            val url  = "$publicBase/proposta/$slug"
+                            val intent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_TEXT, url)
+                            }
+                            context.startActivity(Intent.createChooser(intent, "Compartilhar proposta"))
+                        },
+                    )
+                }
+            }
+        }
+    }
+
+    if (modalAberto) {
+        PropostaModal(
+            proposta = editando,
+            isSaving = isSaving,
+            onSalvar = { turma, slug ->
+                val body = buildMap<String, Any?> {
+                    put("turma", turma)
+                    if (slug.isNotBlank()) put("slug", slug)
+                }
+                val e = editando
+                if (e == null) vm.criarProposta(body)    { modalAberto = false; editando = null }
+                else           vm.atualizarProposta(e.id, body) { modalAberto = false; editando = null }
+            },
+            onFechar = { modalAberto = false; editando = null },
+        )
+    }
+}
+
+@Composable
+private fun PropostaCard(p: Proposta, onEdit: () -> Unit, onDelete: () -> Unit, onLink: () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(1.dp),
+        border = BorderStroke(1.dp, Gray200),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(p.turma, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Gray900, modifier = Modifier.weight(1f))
+                if (p.ativo == false) {
+                    Surface(color = Gray100, shape = RoundedCornerShape(20.dp)) {
+                        Text("Inativa", color = Gray500, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                    }
+                }
+            }
+            val nItens = p.itens?.size ?: 0
+            val nOpc   = p.opcionais?.size ?: 0
+            if (nItens > 0 || nOpc > 0) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (nItens > 0) {
+                        Surface(color = Blue50, shape = RoundedCornerShape(6.dp)) {
+                            Text("$nItens ${if (nItens == 1) "item" else "itens"}", fontSize = 11.sp, color = Blue700,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                        }
+                    }
+                    if (nOpc > 0) {
+                        Surface(color = Color(0xFFF3E8FF), shape = RoundedCornerShape(6.dp)) {
+                            Text("$nOpc ${if (nOpc == 1) "opcional" else "opcionais"}", fontSize = 11.sp, color = Color(0xFF7C3AED),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp))
+                        }
+                    }
+                }
+            }
+            if (!p.slug.isNullOrBlank()) {
+                Text("Slug: ${p.slug}", fontSize = 11.sp, color = Gray500)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = onLink,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
+                ) {
+                    Icon(Icons.Default.Share, null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Link", fontSize = 12.sp)
+                }
+                OutlinedButton(
+                    onClick = onEdit,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
+                ) { Text("Editar", fontSize = 12.sp) }
+                OutlinedButton(
+                    onClick = onDelete,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(8.dp),
+                    contentPadding = PaddingValues(vertical = 6.dp),
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Red500),
+                    border = BorderStroke(1.dp, Red300),
+                ) { Text("Excluir", fontSize = 12.sp) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PropostaModal(
+    proposta: Proposta?,
+    isSaving: Boolean,
+    onSalvar: (turma: String, slug: String) -> Unit,
+    onFechar: () -> Unit,
+) {
+    var turma by remember(proposta) { mutableStateOf(proposta?.turma ?: "") }
+    var slug  by remember(proposta) { mutableStateOf(proposta?.slug ?: "") }
+
+    AlertDialog(
+        onDismissRequest = onFechar,
+        title = { Text(if (proposta == null) "Nova Proposta" else "Editar Proposta") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = turma, onValueChange = { turma = it },
+                    label = { Text("Turma / Nome *") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                )
+                OutlinedTextField(
+                    value = slug, onValueChange = { slug = it },
+                    label = { Text("Slug (URL amigável)") },
+                    modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                )
+                if (proposta != null) {
+                    val n = proposta.itens?.size ?: 0
+                    Text(
+                        "Para gerenciar os $n ${if (n == 1) "item" else "itens"} da proposta, acesse pelo navegador.",
+                        fontSize = 12.sp, color = Gray500,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { if (turma.isNotBlank()) onSalvar(turma, slug) },
+                enabled = !isSaving && turma.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+            ) {
+                if (isSaving) CircularProgressIndicator(Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
+                else Text("Salvar")
+            }
+        },
+        dismissButton = { TextButton(onClick = onFechar) { Text("Cancelar") } },
+        shape = RoundedCornerShape(16.dp),
+    )
 }
