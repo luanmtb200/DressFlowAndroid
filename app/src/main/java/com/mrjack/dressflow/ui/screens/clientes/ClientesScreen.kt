@@ -311,13 +311,14 @@ fun ClientesScreen(vm: ClientesViewModel = viewModel()) {
         if (sucesso != null) { delay(2000); vm.sucesso.value = null }
     }
 
+    val selAtual = selecionado
     Box(Modifier.fillMaxSize()) {
         when {
-            mostrandoNovaLoc && selecionado != null ->
+            mostrandoNovaLoc && selAtual != null ->
                 LocacaoFormScreen(
                     vm = vendasVm,
-                    clienteIdFixo = selecionado!!.id,
-                    clienteNomeFixo = selecionado!!.nome,
+                    clienteIdFixo = selAtual.id,
+                    clienteNomeFixo = selAtual.nome,
                     eventoInicial = eventoLoc,
                     dataEventoInicial = dataEventoLoc,
                     onFechar = {
@@ -326,9 +327,9 @@ fun ClientesScreen(vm: ClientesViewModel = viewModel()) {
                         vm.dataEventoParaLocacao.value = ""
                     },
                 )
-            editandoCliente && selecionado != null -> ClienteEditarScreen(vm, selecionado!!)
+            editandoCliente && selAtual != null -> ClienteEditarScreen(vm, selAtual)
             criandoCliente      -> NovoAtendimentoScreen(vm)
-            selecionado != null -> ClienteDetalheScreen(vm, selecionado!!)
+            selAtual != null -> ClienteDetalheScreen(vm, selAtual)
             else                -> ListaClientesScreen(vm)
         }
         sucesso?.let {
@@ -588,7 +589,7 @@ fun DevolucoesTabContent(vm: ClientesViewModel) {
                                 Column(Modifier.weight(2f)) {
                                     Text(l.cliente?.nome ?: "—", fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Blue600)
                                     if (!l.cliente?.telefone.isNullOrBlank()) {
-                                        Text(l.cliente!!.telefone!!, fontSize = 11.sp, color = Gray500)
+                                        Text(l.cliente?.telefone ?: "", fontSize = 11.sp, color = Gray500)
                                     }
                                 }
                                 Text(l.traje, Modifier.weight(2f), fontSize = 12.sp, color = Gray700, fontWeight = FontWeight.Medium)
@@ -1003,21 +1004,23 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("Telefone *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = maskTelefone(telefone),
+                            OutlinedTextField(value = telefone,
                                 onValueChange = { new ->
                                     telefone = new.filter { c -> c.isDigit() }.take(11)
                                 },
                                 placeholder = { Text("(11) 99999-9999", color = Gray500) },
+                                visualTransformation = BrPhoneVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
                         }
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text("CPF", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = maskCpf(cpf),
+                            OutlinedTextField(value = cpf,
                                 onValueChange = { new ->
                                     cpf = new.filter { c -> c.isDigit() }.take(11)
                                 },
                                 placeholder = { Text("000.000.000-00", color = Gray500) },
+                                visualTransformation = CpfVisualTransformation(),
                                 modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
                         }
@@ -1240,9 +1243,10 @@ fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("Telefone", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
                     OutlinedTextField(
-                        value = maskTelefone(telefone),
+                        value = telefone,
                         onValueChange = { new -> telefone = new.filter { c -> c.isDigit() }.take(11) },
                         placeholder = { Text("(11) 99999-9999", color = Gray500) },
+                        visualTransformation = BrPhoneVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     )
@@ -1250,9 +1254,10 @@ fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("CPF", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
                     OutlinedTextField(
-                        value = maskCpf(cpf),
+                        value = cpf,
                         onValueChange = { new -> cpf = new.filter { c -> c.isDigit() }.take(11) },
                         placeholder = { Text("000.000.000-00", color = Gray500) },
+                        visualTransformation = CpfVisualTransformation(),
                         modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
                     )
