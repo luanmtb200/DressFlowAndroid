@@ -174,21 +174,15 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    val vendedores         = MutableStateFlow<List<com.mrjack.dressflow.data.model.Vendedor>>(emptyList())
-    val currentVendedorId  = MutableStateFlow<Int?>(null)
     val userNivel          = MutableStateFlow("VENDEDOR")
 
     init {
-        viewModelScope.launch {
-            try { vendedores.value = api.listarVendedores().body() ?: emptyList() } catch (_: Exception) {}
-        }
         viewModelScope.launch {
             try {
                 app.dataStore.data.collect { prefs ->
                     val json = prefs[com.mrjack.dressflow.data.api.PrefsKeys.USER_JSON]
                     if (json != null) {
                         val u = com.google.gson.Gson().fromJson(json, com.mrjack.dressflow.data.model.UsuarioLogado::class.java)
-                        currentVendedorId.value = u?.vendedorId
                         userNivel.value = u?.nivel ?: "VENDEDOR"
                     }
                 }
@@ -199,13 +193,8 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
     fun criarAtendimento(
         nome: String,
         telefone: String,
-        cpf: String,
         tipoCliente: String,
-        dataNascimento: String,
         referencia: String,
-        cep: String,
-        endereco: String,
-        vendedorId: Int?,
         evento: String,
         dataEvento: String,
     ) {
@@ -216,13 +205,8 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
                 val body = mutableMapOf<String, Any?>(
                     "nome"           to nome,
                     "telefone"       to telefone.ifBlank { null },
-                    "cpf"            to cpf.replace(Regex("[^0-9]"), "").ifBlank { null },
                     "tipoCliente"    to tipoCliente.ifBlank { null },
-                    "dataNascimento" to dataNascimento.ifBlank { null },
                     "referencia"     to referencia.ifBlank { null },
-                    "cep"            to cep.replace(Regex("[^0-9]"), "").ifBlank { null },
-                    "endereco"       to endereco.ifBlank { null },
-                    "vendedorId"     to vendedorId,
                 )
                 val resp = api.criarCliente(body)
                 if (resp.isSuccessful) {
@@ -888,80 +872,20 @@ fun maskCpf(raw: String): String {
     }
 }
 
-fun maskCep(raw: String): String {
-    val d = raw.replace(Regex("[^0-9]"), "").take(8)
-    return if (d.length <= 5) d else "${d.take(5)}-${d.drop(5)}"
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NovoAtendimentoScreen(vm: ClientesViewModel) {
-    val isSaving          by vm.isSaving.collectAsState()
-    val erro              by vm.erro.collectAsState()
-    val vendedores        by vm.vendedores.collectAsState()
-    val currentVendedorId by vm.currentVendedorId.collectAsState()
-    val userNivel         by vm.userNivel.collectAsState()
+    val isSaving  by vm.isSaving.collectAsState()
+    val erro      by vm.erro.collectAsState()
+    val userNivel by vm.userNivel.collectAsState()
     val podeAdicionar = listOf("ADMIN", "GERENCIA", "DIRETOR").contains(userNivel)
 
-    var nome            by remember { mutableStateOf("") }
-    var telefone        by remember { mutableStateOf("") }
-    var cpf             by remember { mutableStateOf("") }
-    var tipoCliente     by remember { mutableStateOf("") }
-    var dataNasc        by remember { mutableStateOf("") }
-    var referencia      by remember { mutableStateOf("") }
-    var cep             by remember { mutableStateOf("") }
-    var rua             by remember { mutableStateOf("") }
-    var numero          by remember { mutableStateOf("") }
-    var bairro          by remember { mutableStateOf("") }
-    var cidade          by remember { mutableStateOf("") }
-    var vendedorId      by remember { mutableStateOf<Int?>(null) }
-    var evento          by remember { mutableStateOf("") }
-    var dataEvento      by remember { mutableStateOf("") }
-    var tipoExpanded    by remember { mutableStateOf(false) }
-    var vendedorExpanded by remember { mutableStateOf(false) }
-    var cepLoading      by remember { mutableStateOf(false) }
-
-    val scope = rememberCoroutineScope()
-
-    // Pré-seleciona vendedor do usuário logado quando carregado
-    LaunchedEffect(currentVendedorId) {
-        if (vendedorId == null && currentVendedorId != null) {
-            vendedorId = currentVendedorId
-        }
-    }
-
-    fun buscarCep(cepDigits: String) {
-        scope.launch {
-            cepLoading = true
-            try {
-                val resp = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    java.net.URL("https://viacep.com.br/ws/$cepDigits/json/").readText()
-                }
-                val json = com.google.gson.JsonParser.parseString(resp).asJsonObject
-                if (!json.has("erro")) {
-                    rua    = json.get("logradouro")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                    bairro = json.get("bairro")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                    val loc = json.get("localidade")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                    val uf  = json.get("uf")?.takeIf { !it.isJsonNull }?.asString ?: ""
-                    cidade = if (loc.isNotBlank() && uf.isNotBlank()) "$loc - $uf" else loc
-                }
-            } catch (_: Exception) {}
-            cepLoading = false
-        }
-    }
-
-    val tipos = listOf(
-        "" to "— Selecionar —",
-        "NOIVO" to "Noivo", "NOIVA" to "Noiva",
-        "PADRINHO" to "Padrinho", "MADRINHA" to "Madrinha",
-        "PAGEM" to "Pagem",
-        "FORMANDO" to "Formando", "FORMANDA" to "Formanda",
-        "PAI_FORMANDO" to "Pai do Formando", "MAE_FORMANDA" to "Mãe da Formanda",
-        "DEBUTANTE" to "Debutante", "PRINCIPE_DEBUTANTE" to "Príncipe Debutante",
-        "PAI_DEBUTANTE" to "Pai da Debutante", "MAE_DEBUTANTE" to "Mãe da Debutante",
-    )
-
-    fun buildEndereco() = listOf(rua, numero, bairro, cidade).filter { it.isNotBlank() }.joinToString(", ")
+    var nome        by remember { mutableStateOf("") }
+    var telefone    by remember { mutableStateOf("") }
+    var tipoCliente by remember { mutableStateOf("") }
+    var referencia  by remember { mutableStateOf("") }
+    var evento      by remember { mutableStateOf("") }
+    var dataEvento  by remember { mutableStateOf("") }
 
     Column(Modifier.fillMaxSize()) {
         Surface(shadowElevation = 2.dp, color = Color.White) {
@@ -999,46 +923,28 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
                     }
 
-                    // Telefone + CPF
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Telefone *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = telefone,
-                                onValueChange = { new ->
-                                    telefone = new.filter { c -> c.isDigit() }.take(11)
-                                },
-                                placeholder = { Text("(11) 99999-9999", color = Gray500) },
-                                visualTransformation = BrPhoneVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
-                        }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("CPF", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = cpf,
-                                onValueChange = { new ->
-                                    cpf = new.filter { c -> c.isDigit() }.take(11)
-                                },
-                                placeholder = { Text("000.000.000-00", color = Gray500) },
-                                visualTransformation = CpfVisualTransformation(),
-                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
-                        }
+                    // Telefone
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Telefone *", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                        OutlinedTextField(value = telefone,
+                            onValueChange = { new ->
+                                telefone = new.filter { c -> c.isDigit() }.take(11)
+                            },
+                            placeholder = { Text("(11) 99999-9999", color = Gray500) },
+                            visualTransformation = BrPhoneVisualTransformation(),
+                            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
                     }
 
-                    // Tipo + Nascimento
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Tipo de cliente", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            TipoClienteSelect(
-                                value = tipoCliente,
-                                onValueChange = { tipoCliente = it },
-                                podeAdicionar = podeAdicionar,
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                        }
-                        if (podeAdicionar) {
-                            DatePickerField(label = "Data de nascimento", value = dataNasc, onDateSelected = { dataNasc = it }, modifier = Modifier.weight(1f))
-                        }
+                    // Tipo de cliente
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Tipo de cliente", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                        TipoClienteSelect(
+                            value = tipoCliente,
+                            onValueChange = { tipoCliente = it },
+                            podeAdicionar = podeAdicionar,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
 
                     // Referência
@@ -1051,80 +957,7 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                     }
 
                     HorizontalDivider(color = Gray200)
-                    Text("ENDEREÇO", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Blue600, letterSpacing = 1.sp)
-
-                    // CEP
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("CEP", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            OutlinedTextField(value = cep,
-                                onValueChange = { v ->
-                                    cep = maskCep(v)
-                                    val digits = cep.replace(Regex("[^0-9]"), "")
-                                    if (digits.length == 8) buscarCep(digits)
-                                },
-                                placeholder = { Text("00000-000", color = Gray500) },
-                                modifier = Modifier.weight(1f), singleLine = true, shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next))
-                            if (cepLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Blue600)
-                        }
-                    }
-
-                    // Rua + Número
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1.5f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Rua / Logradouro", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = rua, onValueChange = { rua = it },
-                                placeholder = { Text("Preenchido pelo CEP", color = Gray500) },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences, imeAction = ImeAction.Next))
-                        }
-                        Column(Modifier.weight(0.7f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Número", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = numero, onValueChange = { numero = it },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next))
-                        }
-                    }
-
-                    // Bairro + Cidade
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Bairro", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = bairro, onValueChange = { bairro = it },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
-                        }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Cidade", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            OutlinedTextField(value = cidade, onValueChange = { cidade = it },
-                                modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
-                                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next))
-                        }
-                    }
-
-                    HorizontalDivider(color = Gray200)
                     Text("DADOS DO EVENTO", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = Blue600, letterSpacing = 1.sp)
-
-                    // Vendedor
-                    if (vendedores.isNotEmpty()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text("Vendedor", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
-                            ExposedDropdownMenuBox(expanded = vendedorExpanded, onExpandedChange = { vendedorExpanded = it }) {
-                                OutlinedTextField(
-                                    value = vendedores.find { it.id == vendedorId }?.nome ?: "— Selecionar —",
-                                    onValueChange = {}, readOnly = true,
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(vendedorExpanded) },
-                                    modifier = Modifier.fillMaxWidth().menuAnchor(), shape = RoundedCornerShape(8.dp),
-                                )
-                                ExposedDropdownMenu(expanded = vendedorExpanded, onDismissRequest = { vendedorExpanded = false }) {
-                                    vendedores.filter { it.ativo }.forEach { v ->
-                                        DropdownMenuItem(text = { Text(v.nome) }, onClick = { vendedorId = v.id; vendedorExpanded = false })
-                                    }
-                                }
-                            }
-                        }
-                    }
 
                     // Evento + Data
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1151,7 +984,7 @@ fun NovoAtendimentoScreen(vm: ClientesViewModel) {
                             telefone.isBlank()   -> vm.erro.value = "Telefone obrigatório"
                             evento.isBlank()     -> vm.erro.value = "Informe o evento"
                             dataEvento.isBlank() -> vm.erro.value = "Informe a data do evento"
-                            else -> vm.criarAtendimento(nome, telefone, cpf, tipoCliente, dataNasc, referencia, cep, buildEndereco(), vendedorId, evento, dataEvento)
+                            else -> vm.criarAtendimento(nome, telefone, tipoCliente, referencia, evento, dataEvento)
                         }
                     },
                     enabled = !isSaving,
