@@ -35,6 +35,7 @@ import com.mrjack.dressflow.ui.components.DatePickerField
 import com.mrjack.dressflow.ui.components.TipoClienteSelect
 import com.mrjack.dressflow.ui.components.WaBotao
 import com.mrjack.dressflow.ui.screens.vendas.LocacaoFormScreen
+import com.mrjack.dressflow.ui.screens.vendas.NovaLocacaoMultiTab
 import com.mrjack.dressflow.ui.screens.vendas.VendasViewModel
 import com.mrjack.dressflow.ui.screens.vendas.brl
 import com.mrjack.dressflow.ui.screens.vendas.fmtDataCompleta
@@ -305,7 +306,6 @@ fun ClientesScreen(vm: ClientesViewModel = viewModel()) {
     val dataEventoLoc    by vm.dataEventoParaLocacao.collectAsState()
     val sucesso          by vm.sucesso.collectAsState()
     val editandoCliente  by vm.editandoCliente.collectAsState()
-    val vendasVm: VendasViewModel = viewModel()
 
     LaunchedEffect(sucesso) {
         if (sucesso != null) { delay(2000); vm.sucesso.value = null }
@@ -315,13 +315,12 @@ fun ClientesScreen(vm: ClientesViewModel = viewModel()) {
     Box(Modifier.fillMaxSize()) {
         when {
             mostrandoNovaLoc && selAtual != null ->
-                LocacaoFormScreen(
-                    vm = vendasVm,
-                    clienteIdFixo = selAtual.id,
-                    clienteNomeFixo = selAtual.nome,
+                NovaLocacaoMultiTab(
+                    clienteIdInicial = selAtual.id,
+                    clienteNomeInicial = selAtual.nome,
                     eventoInicial = eventoLoc,
                     dataEventoInicial = dataEventoLoc,
-                    onFechar = {
+                    onFecharTudo = {
                         vm.fecharNovaLocacao()
                         vm.eventoParaLocacao.value = ""
                         vm.dataEventoParaLocacao.value = ""
