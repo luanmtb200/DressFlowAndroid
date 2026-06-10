@@ -26,8 +26,8 @@ suspend fun checkForUpdate(context: Context): AppVersion? = withContext(Dispatch
         conn.readTimeout = 10_000
         val json = JSONObject(conn.getInputStream().bufferedReader().readText())
 
-        val tagName = json.getString("tag_name")           // ex: "android-v1.3"
-        val version = tagName.removePrefix("android-v")   // ex: "1.3"
+        val tagName = json.getString("tag_name")           // ex: "android-v1.3" ou "v4.2"
+        val version = tagName.removePrefix("android-v").removePrefix("v") // ex: "1.3"
 
         if (!isNewerVersion(version, BuildConfig.VERSION_NAME)) return@withContext null
 
