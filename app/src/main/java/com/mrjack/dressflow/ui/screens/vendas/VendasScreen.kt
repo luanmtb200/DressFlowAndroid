@@ -206,13 +206,109 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
                     "tipo"           to "VENDA",
                     "traje"          to trajeVenda,
                     "dataEvento"     to form.dataEvento,
-                    "formaPagamento" to form.formaPagamento,
+                    "formaPagamento" to (form.formasPagamento.firstOrNull() ?: form.formaPagamento),
                     "valor"          to String.format(java.util.Locale.US, "%.2f", totalVenda),
                     "sexo"           to form.sexo,
                     "itensVenda"     to com.google.gson.Gson().toJson(itensVenda),
                 )
-                api.criarLocacao(body)
-            } catch (_: Exception) { }
+                val resp = api.criarLocacao(body)
+                if (!resp.isSuccessful) erro.value = "Erro ao registrar venda de itens (${resp.code()})"
+            } catch (e: Exception) { erro.value = e.message }
+        }
+    }
+
+    fun salvarLocacaoComExtras(
+        form: LocacaoForm,
+        extras: List<TrajeExtra>,
+        onSuccess: () -> Unit,
+    ) {
+        viewModelScope.launch {
+            isSaving.value = true
+            erro.value = null
+            try {
+                // 1. Criar locação principal
+                val resp = api.criarLocacao(buildBody(form))
+                if (!resp.isSuccessful) {
+                    erro.value = parseErro(resp.errorBody()?.string(), resp.code())
+                    return@launch
+                }
+
+                // 2. Criar extras — com ou sem cliente diferente
+                for (extra in extras) {
+                    val extraClienteId = if (extra.clienteDiferente && extra.nomeCliente2.isNotBlank()) {
+                        val c2body = mutableMapOf<String, Any?>(
+                            "nome"     to extra.nomeCliente2,
+                            "telefone" to extra.telefoneCliente2.ifBlank { null },
+                            "cpf"      to extra.cpfCliente2.ifBlank { null },
+                        )
+                        val c2resp = api.criarCliente(c2body)
+                        if (!c2resp.isSuccessful) {
+                            erro.value = "Erro ao criar cliente 2 (${c2resp.code()})"
+                            return@launch
+                        }
+                        val c2id = c2resp.body()?.id
+                        if (c2id == null) {
+                            erro.value = "Erro ao criar cliente 2: resposta inválida"
+                            return@launch
+                        }
+                        c2id
+                    } else {
+                        form.clienteId
+                    }
+                    val extraValor = run {
+                        val b = extra.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
+                        val d = extra.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
+                        if (b > 0) String.format(java.util.Locale.US, "%.2f", b * (1.0 - d / 100.0)) else extra.valorBase
+                    }
+                    val extraForm = form.copy(
+                        clienteId = extraClienteId,
+                        clienteNome = if (extra.clienteDiferente && extra.nomeCliente2.isNotBlank()) extra.nomeCliente2 else form.clienteNome,
+                        traje = extra.traje,
+                        sexo = extra.sexo,
+                        valorBase = extra.valorBase,
+                        valor = extraValor,
+                        formaPagamento = form.formaPagamento,
+                        formasPagamento = form.formasPagamento,
+                        tamanhoPaleto = extra.tamanhoPaleto,
+                        tamanhoManga = extra.tamanhoManga,
+                        tamanhoColete = extra.tamanhoColete,
+                        calca = extra.calca,
+                        tamanhoCalca = extra.tamanhoCalca,
+                        camisa = extra.camisa,
+                        gravata = extra.gravata,
+                        cinto = extra.cinto,
+                        sapato = extra.sapato,
+                        abotoadura = extra.abotoadura,
+                        torax = extra.torax,
+                        abdomen = extra.abdomen,
+                        quadril = extra.quadril,
+                        panturrilha = extra.panturrilha,
+                        busto = extra.busto,
+                        cintura = extra.cintura,
+                        ajustes = extra.ajustes,
+                        menorDeIdade = extra.menorDeIdade,
+                        nomeResponsavel = extra.nomeResponsavel,
+                        itensLocados = extra.itensLocados.joinToString(","),
+                        itensVenda = emptyMap(),
+                    )
+                    val extraResp = api.criarLocacao(buildBody(extraForm))
+                    if (!extraResp.isSuccessful) {
+                        erro.value = "Erro ao criar traje extra (${extraResp.code()})"
+                        return@launch
+                    }
+                }
+
+                // 3. Itens de venda
+                if (form.itensVenda.isNotEmpty()) criarVendaLocacao(form)
+
+                sucesso.value = "Locação criada!"
+                clientesBusca.value = emptyList()
+                onSuccess()
+            } catch (e: Exception) {
+                erro.value = e.message
+            } finally {
+                isSaving.value = false
+            }
         }
     }
 
@@ -1078,6 +1174,11 @@ data class TrajeExtra(
     val ajustes: String = "",
     val menorDeIdade: Boolean = false,
     val nomeResponsavel: String = "",
+    // Cliente diferente
+    val clienteDiferente: Boolean = false,
+    val nomeCliente2: String = "",
+    val telefoneCliente2: String = "",
+    val cpfCliente2: String = "",
 )
 
 // ─── Formulário Nova / Edição de Locação ──────────────────────────────────────
@@ -1205,57 +1306,26 @@ fun LocacaoFormScreen(
             formFinal.tipo != "ORCAMENTO" && formFinal.formaPagamento.isBlank() -> vm.erro.value = "Selecione a forma de pagamento"
             formFinal.tipo == "ORCAMENTO" && formFinal.motivoNaoFechar.isBlank() -> vm.erro.value = "Informe o motivo de não fechar"
             formFinal.menorDeIdade && formFinal.nomeResponsavel.isBlank() -> vm.erro.value = "Informe o nome do responsável"
+            extrasTraje.any { it.clienteDiferente && it.nomeCliente2.isBlank() } -> vm.erro.value = "Informe o nome do cliente 2 nos trajes com 'Cliente diferente' marcado"
             else -> {
                 if (isEditando && locacaoExistente != null) {
                     vm.atualizarLocacao(locacaoExistente.id, formFinal) { onFechar() }
                 } else {
-                    vm.salvarLocacao(formFinal) {
-                        // Criar extras sequencialmente
-                        if (extrasTraje.isNotEmpty()) {
-                            extrasTraje.forEach { extra ->
-                                val extraValor = run {
-                                    val b = extra.valorBase.replace(",", ".").toDoubleOrNull() ?: 0.0
-                                    val d = extra.desconto.replace(",", ".").toDoubleOrNull() ?: 0.0
-                                    if (b > 0) String.format(java.util.Locale.US, "%.2f", b * (1.0 - d / 100.0)) else extra.valorBase
-                                }
-                                val extraForm = formFinal.copy(
-                                    traje = extra.traje,
-                                    sexo = extra.sexo,
-                                    valorBase = extra.valorBase,
-                                    valor = extraValor,
-                                    tamanhoPaleto = extra.tamanhoPaleto,
-                                    tamanhoManga = extra.tamanhoManga,
-                                    tamanhoColete = extra.tamanhoColete,
-                                    calca = extra.calca,
-                                    tamanhoCalca = extra.tamanhoCalca,
-                                    camisa = extra.camisa,
-                                    gravata = extra.gravata,
-                                    cinto = extra.cinto,
-                                    sapato = extra.sapato,
-                                    abotoadura = extra.abotoadura,
-                                    torax = extra.torax,
-                                    abdomen = extra.abdomen,
-                                    quadril = extra.quadril,
-                                    panturrilha = extra.panturrilha,
-                                    busto = extra.busto,
-                                    cintura = extra.cintura,
-                                    ajustes = extra.ajustes,
-                                    menorDeIdade = extra.menorDeIdade,
-                                    nomeResponsavel = extra.nomeResponsavel,
-                                    itensLocados = extra.itensLocados.joinToString(","),
-                                )
-                                vm.salvarLocacao(extraForm) {}
-                            }
-                        }
-                        if (formFinal.itensVenda.isNotEmpty()) {
-                            vm.criarVendaLocacao(formFinal)
-                        }
+                    val onSuccess: () -> Unit = {
                         if (formFinal.tipo == "LOCACAO" || formFinal.tipo == "VENDA") {
                             clienteIdSalvo = formFinal.clienteId
                             clienteNomeSalvo = formFinal.clienteNome
                             mostrarCompletar = true
                         } else {
                             onFechar()
+                        }
+                    }
+                    if (extrasTraje.isNotEmpty()) {
+                        vm.salvarLocacaoComExtras(formFinal, extrasTraje, onSuccess)
+                    } else {
+                        vm.salvarLocacao(formFinal) {
+                            if (formFinal.itensVenda.isNotEmpty()) vm.criarVendaLocacao(formFinal)
+                            onSuccess()
                         }
                     }
                 }
@@ -1612,7 +1682,7 @@ fun LocacaoFormScreen(
                                 val novasPrimaria = if (novas.isEmpty() && !sel) setOf(fp) else novas
                                 form = form.copy(
                                     formasPagamento = novasPrimaria,
-                                    formaPagamento = novasPrimaria.first(),
+                                    formaPagamento = novasPrimaria.firstOrNull() ?: form.formaPagamento,
                                     parcelas = if (sel && fp == "Boleto") "1" else form.parcelas,
                                 )
                             }, label = { Text(fp, fontSize = 11.sp) }, modifier = Modifier.weight(1f))
@@ -1864,6 +1934,56 @@ fun TrajeExtraCard(
                 Text(titulo, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Gray700, modifier = Modifier.weight(1f))
                 IconButton(onClick = onRemover, modifier = Modifier.size(32.dp)) {
                     Icon(Icons.Default.Close, null, tint = Red500, modifier = Modifier.size(18.dp))
+                }
+            }
+
+            // ── Cliente diferente
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = if (extra.clienteDiferente) Color(0xFFEEF2FF) else Color(0xFFF9FAFB),
+                border = BorderStroke(1.dp, if (extra.clienteDiferente) Color(0xFF818CF8) else Gray200),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Checkbox(
+                            checked = extra.clienteDiferente,
+                            onCheckedChange = { onChanged(extra.copy(clienteDiferente = it, nomeCliente2 = "", telefoneCliente2 = "", cpfCliente2 = "")) },
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Text("Cliente diferente", fontSize = 12.sp, color = Color(0xFF4F46E5), fontWeight = FontWeight.SemiBold)
+                    }
+                    if (!extra.clienteDiferente) {
+                        Text("Marque para associar outro cliente a este traje", fontSize = 11.sp, color = Gray500)
+                    }
+                    if (extra.clienteDiferente) {
+                        OutlinedTextField(
+                            value = extra.nomeCliente2,
+                            onValueChange = { onChanged(extra.copy(nomeCliente2 = it)) },
+                            label = { Text("Nome do cliente 2 *") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true, shape = RoundedCornerShape(8.dp),
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = extra.telefoneCliente2,
+                                onValueChange = { onChanged(extra.copy(telefoneCliente2 = it)) },
+                                label = { Text("Telefone") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                            )
+                            OutlinedTextField(
+                                value = extra.cpfCliente2,
+                                onValueChange = { onChanged(extra.copy(cpfCliente2 = it)) },
+                                label = { Text("CPF") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true, shape = RoundedCornerShape(8.dp),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            )
+                        }
+                    }
                 }
             }
 

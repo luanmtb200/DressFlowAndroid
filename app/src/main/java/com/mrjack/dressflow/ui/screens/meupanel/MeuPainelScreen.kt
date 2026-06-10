@@ -758,7 +758,7 @@ private fun OrcamentoCard(
                     Column {
                         Text(locacao.cliente?.nome ?: "—", fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Gray900)
                         if (!locacao.cliente?.tipoCliente.isNullOrBlank()) {
-                            Text(locacao.cliente!!.tipoCliente!!, fontSize = 12.sp, color = Gray500)
+                            Text(locacao.cliente?.tipoCliente ?: "", fontSize = 12.sp, color = Gray500)
                         }
                     }
                     Text(brl(locacao.valor.toDoubleOrNull() ?: 0.0), fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Gray900)

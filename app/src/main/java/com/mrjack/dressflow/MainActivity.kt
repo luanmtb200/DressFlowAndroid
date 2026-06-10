@@ -109,8 +109,9 @@ fun DressFlowApp(authViewModel: AuthViewModel) {
 
     // Inicia o download quando o usuário confirmar
     LaunchedEffect(baixando) {
-        if (baixando && updatePendente != null) {
-            downloadAndInstallSync(context, updatePendente!!.apkUrl)
+        val u = updatePendente
+        if (baixando && u != null) {
+            downloadAndInstallSync(context, u.apkUrl)
             baixando = false
             updatePendente = null
         }
