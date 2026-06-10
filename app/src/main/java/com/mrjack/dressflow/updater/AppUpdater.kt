@@ -14,7 +14,7 @@ import java.io.File
 import java.net.URL
 
 private const val GITHUB_API_URL =
-    "https://api.github.com/repos/luanmtb200/DressFlow/releases/latest"
+    "https://api.github.com/repos/luanmtb200/DressFlowAndroid/releases/latest"
 
 data class AppVersion(val version: String, val apkUrl: String, val notes: String)
 
