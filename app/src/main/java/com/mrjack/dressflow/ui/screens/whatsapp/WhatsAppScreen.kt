@@ -69,7 +69,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.TimeZone
 
-private const val GATEWAY_URL = "https://dressflow-whatsapp.fly.dev"
+private const val GATEWAY_URL = "https://gateway.dressflow.com.br"
 
 // ─── Mensagens rápidas Mr.Jack ────────────────────────────────────────────────
 
