@@ -30,6 +30,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.data.api.NetworkModule
+import com.mrjack.dressflow.data.api.PrefsKeys
+import com.mrjack.dressflow.data.api.dataStore
 import com.mrjack.dressflow.data.model.*
 import com.mrjack.dressflow.ui.components.WaBotao
 import com.mrjack.dressflow.ui.theme.*
@@ -110,6 +112,23 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
     val clientesBusca   = MutableStateFlow<List<Cliente>>(emptyList())
     val buscandoCliente = MutableStateFlow(false)
     private var clienteJob: Job? = null
+
+    // vendedorId do usuário logado, para auto-selecionar o vendedor em novas locações
+    val usuarioVendedorId = MutableStateFlow<Int?>(null)
+
+    init {
+        viewModelScope.launch {
+            try {
+                app.dataStore.data.collect { prefs ->
+                    val json = prefs[PrefsKeys.USER_JSON]
+                    if (json != null) {
+                        val u = com.google.gson.Gson().fromJson(json, UsuarioLogado::class.java)
+                        usuarioVendedorId.value = u?.vendedorId
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     fun buscarTrajePorCodigo(codigo: String, onResult: (Traje?) -> Unit) {
         viewModelScope.launch {
@@ -203,6 +222,7 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
                 val totalVenda = itensVenda.values.sumOf { it.replace(",", ".").toDoubleOrNull() ?: 0.0 }
                 val body = mapOf<String, Any?>(
                     "clienteId"      to form.clienteId,
+                    "vendedorId"     to form.vendedorId,
                     "tipo"           to "VENDA",
                     "traje"          to trajeVenda,
                     "dataEvento"     to form.dataEvento,
@@ -318,6 +338,7 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
     private fun buildBody(form: LocacaoForm): Map<String, Any?> {
         val m = mutableMapOf<String, Any?>(
             "clienteId"      to form.clienteId,
+            "vendedorId"     to form.vendedorId,
             "tipo"           to form.tipo,
             "traje"          to form.traje,
             "evento"         to form.evento.ifBlank { null },
@@ -379,6 +400,7 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
 data class LocacaoForm(
     var clienteId: Int = 0,
     var clienteNome: String = "",
+    var vendedorId: Int? = null,
     var tipo: String = "LOCACAO",
     var traje: String = "",
     var evento: String = "",
@@ -422,6 +444,7 @@ data class LocacaoForm(
 fun Locacao.toForm() = LocacaoForm(
     clienteId       = this.cliente?.id ?: 0,
     clienteNome     = this.cliente?.nome ?: "",
+    vendedorId      = this.vendedor?.id,
     tipo            = this.tipo,
     traje           = this.traje,
     evento          = this.evento ?: "",
@@ -1208,6 +1231,14 @@ fun LocacaoFormScreen(
                 evento = eventoInicial, dataEvento = dataEventoInicial,
             ) else LocacaoForm()
         )
+    }
+
+    // Auto-seleciona o vendedor logado em novos registros (não altera registros já existentes)
+    val usuarioVendedorId by vm.usuarioVendedorId.collectAsState()
+    LaunchedEffect(usuarioVendedorId) {
+        if (!isEditando && form.vendedorId == null && usuarioVendedorId != null) {
+            form = form.copy(vendedorId = usuarioVendedorId)
+        }
     }
 
     var clienteBusca        by remember { mutableStateOf("") }

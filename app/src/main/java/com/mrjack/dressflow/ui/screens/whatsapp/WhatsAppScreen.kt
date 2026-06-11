@@ -38,9 +38,12 @@ import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.datastore.preferences.core.edit
 import coil.compose.AsyncImage
 import com.google.gson.reflect.TypeToken
 import com.mrjack.dressflow.data.api.NetworkModule
+import com.mrjack.dressflow.data.api.PrefsKeys
+import com.mrjack.dressflow.data.api.dataStore
 import com.mrjack.dressflow.data.model.EtiquetaWa
 import com.mrjack.dressflow.data.model.GatewayConversa
 import com.mrjack.dressflow.data.model.GatewayMensagem
@@ -58,6 +61,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
@@ -122,6 +127,8 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
     val erro           = MutableStateFlow<String?>(null)
     val fotoMap        = MutableStateFlow<Map<String, String?>>(emptyMap())
     val vendedores     = MutableStateFlow<List<Vendedor>>(emptyList())
+    val arquivadas        = MutableStateFlow<Set<String>>(emptySet())
+    val mostrarArquivadas = MutableStateFlow(false)
 
     private var buscaJob: Job? = null
     private var buscaAtual = ""
@@ -135,6 +142,14 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
             carregarLabels()
             try { vendedores.value = api.listarVendedores().body() ?: emptyList() } catch (_: Exception) {}
         }
+        viewModelScope.launch {
+            try {
+                app.dataStore.data.collect { prefs ->
+                    arquivadas.value = prefs[PrefsKeys.WA_ARQUIVADAS] ?: emptySet()
+                    aplicarFiltros()
+                }
+            } catch (_: Exception) {}
+        }
         conectarSocketLista()
     }
 
@@ -143,8 +158,13 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
             isLoading.value = true
             try {
                 // Carrega wha-server (dados ricos: nome, foto) + gateway (TODAS as conversas)
-                val waChats = try { api.listarChats().body() ?: emptyList() } catch (_: Exception) { emptyList() }
-                val gwConversas = carregarGatewayConversas()
+                // em paralelo — ambos são independentes, então não há motivo para esperar
+                // um terminar antes de iniciar o outro.
+                val (waChats, gwConversas) = coroutineScope {
+                    val waChatsDeferred = async { try { api.listarChats().body() ?: emptyList() } catch (_: Exception) { emptyList() } }
+                    val gwConversasDeferred = async { carregarGatewayConversas() }
+                    waChatsDeferred.await() to gwConversasDeferred.await()
+                }
 
                 // Mapa rápido: telefone → WaChat para lookup
                 val waMap = mutableMapOf<String, WaChat>()
@@ -171,9 +191,13 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
                 }
 
                 // Conversas APENAS no gateway (não estão no wha-server — mais antigas)
+                // Exige telefone BR válido (55 + 10/11 dígitos) — evita listar conversas
+                // "fantasma" (LIDs órfãos, IDs de grupo, "status" etc. salvos com telefone
+                // inválido no gateway), igual ao filtro já aplicado no web.
+                val telefoneValido = Regex("^55\\d{10,11}$")
                 for (gw in gwConversas) {
                     val tel = gw.telefone
-                    if (tel !in processados && gw.ultimo_timestamp > 0) {
+                    if (tel !in processados && gw.ultimo_timestamp > 0 && telefoneValido.matches(tel)) {
                         resultado.add(WaChat(
                             id = if (tel.contains("@")) tel else "${tel}@s.whatsapp.net",
                             nome = gw.nome_contato,
@@ -290,7 +314,9 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
         val q = buscaAtual.trim()
         val lbl = labelFiltrado.value
         val lmap = labelsMap.value
-        var resultado = chats.value
+        val arq = arquivadas.value
+        val mostrarArq = mostrarArquivadas.value
+        var resultado = chats.value.filter { c -> (c.id in arq) == mostrarArq }
         if (lbl != null) resultado = resultado.filter { c -> lmap[c.id]?.any { it.id == lbl } == true }
         if (q.isNotEmpty()) resultado = resultado.filter {
             it.nomeExibir.contains(q, ignoreCase = true) || it.telefoneExibir.contains(q)
@@ -518,6 +544,60 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
         fecharChat()
     }
 
+    // ── Ações da lista (long-press) ──────────────────────────────────────────────
+
+    fun marcarChatComoLida(chat: WaChat) {
+        val telefone = chat.id.replace(Regex("@.*"), "").split(":")[0]
+        chats.value = chats.value.map { c ->
+            val cTel = c.id.replace(Regex("@.*"), "").split(":")[0]
+            if (cTel == telefone) c.copy(unreadCount = 0) else c
+        }
+        aplicarFiltros()
+        viewModelScope.launch {
+            try {
+                val req = okhttp3.Request.Builder()
+                    .url("$GATEWAY_URL/conversas/$telefone/lida")
+                    .post("""{"vendedor_id":1,"dispositivo_id":"android"}"""
+                        .toRequestBody("application/json".toMediaType()))
+                    .build()
+                httpClient.newCall(req).execute().close()
+            } catch (_: Exception) {}
+        }
+    }
+
+    fun marcarChatComoNaoLida(chat: WaChat) {
+        val telefone = chat.id.replace(Regex("@.*"), "").split(":")[0]
+        chats.value = chats.value.map { c ->
+            val cTel = c.id.replace(Regex("@.*"), "").split(":")[0]
+            if (cTel == telefone && c.unreadCount == 0) c.copy(unreadCount = 1) else c
+        }
+        aplicarFiltros()
+        viewModelScope.launch {
+            try { api.marcarNaoLidaWa(mapOf("telefone" to telefone)) } catch (_: Exception) {}
+        }
+    }
+
+    fun arquivar(chatId: String) {
+        arquivadas.value = arquivadas.value + chatId
+        aplicarFiltros()
+        viewModelScope.launch {
+            try { getApplication<Application>().dataStore.edit { prefs -> prefs[PrefsKeys.WA_ARQUIVADAS] = arquivadas.value } } catch (_: Exception) {}
+        }
+    }
+
+    fun desarquivar(chatId: String) {
+        arquivadas.value = arquivadas.value - chatId
+        aplicarFiltros()
+        viewModelScope.launch {
+            try { getApplication<Application>().dataStore.edit { prefs -> prefs[PrefsKeys.WA_ARQUIVADAS] = arquivadas.value } } catch (_: Exception) {}
+        }
+    }
+
+    fun toggleMostrarArquivadas() {
+        mostrarArquivadas.value = !mostrarArquivadas.value
+        aplicarFiltros()
+    }
+
     fun excluir(msgId: String) {
         if (msgId.startsWith("local-") || msgId.startsWith("gw-")) return
         mensagens.value = mensagens.value.filter { it.id != msgId && it.msgId != msgId }
@@ -650,6 +730,7 @@ fun WhatsAppScreen(vm: WhatsAppViewModel = viewModel()) {
 
 // ─── Lista de chats ───────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ListaChats(vm: WhatsAppViewModel) {
     val chats      by vm.chatsFiltrados.collectAsState()
@@ -657,12 +738,63 @@ fun ListaChats(vm: WhatsAppViewModel) {
     val isLoading  by vm.isLoading.collectAsState()
     val allLabels  by vm.allLabels.collectAsState()
     val labelSel   by vm.labelFiltrado.collectAsState()
+    val arquivadas by vm.arquivadas.collectAsState()
+    val mostrarArquivadas by vm.mostrarArquivadas.collectAsState()
     var busca      by remember { mutableStateOf("") }
     var showNovaConversa by remember { mutableStateOf(false) }
+    var chatMenuAberto by remember { mutableStateOf<WaChat?>(null) }
+    var chatEtiquetar  by remember { mutableStateOf<WaChat?>(null) }
+    val chatMenuSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val listScrollState = rememberLazyListState() // preserva posição ao voltar
 
     if (showNovaConversa) {
         NovaConversaDialog(vm = vm, onDismiss = { showNovaConversa = false })
+    }
+
+    val etiquetarSnapshot = chatEtiquetar
+    if (etiquetarSnapshot != null) {
+        EtiquetarDialog(chat = etiquetarSnapshot, vm = vm, onDismiss = { chatEtiquetar = null })
+    }
+
+    // Bottom sheet de ações da conversa (long-press na lista)
+    val chatMenuSnapshot = chatMenuAberto
+    if (chatMenuSnapshot != null) {
+        ModalBottomSheet(
+            onDismissRequest = { chatMenuAberto = null },
+            sheetState = chatMenuSheetState,
+            containerColor = Color.White,
+        ) {
+            Column(Modifier.padding(bottom = 32.dp)) {
+                listOf(
+                    (if (chatMenuSnapshot.unreadCount > 0) "✅" else "🔴") to
+                        (if (chatMenuSnapshot.unreadCount > 0) "Marcar como lida" else "Marcar como não lida") to {
+                            if (chatMenuSnapshot.unreadCount > 0) vm.marcarChatComoLida(chatMenuSnapshot)
+                            else vm.marcarChatComoNaoLida(chatMenuSnapshot)
+                            chatMenuAberto = null
+                        },
+                    "🏷️" to "Etiquetar" to {
+                        chatEtiquetar = chatMenuSnapshot
+                        vm.carregarLabelsChat(chatMenuSnapshot.id)
+                        chatMenuAberto = null
+                    },
+                    (if (mostrarArquivadas) "📤" else "🗄️") to (if (mostrarArquivadas) "Desarquivar" else "Arquivar") to {
+                        if (mostrarArquivadas) vm.desarquivar(chatMenuSnapshot.id) else vm.arquivar(chatMenuSnapshot.id)
+                        chatMenuAberto = null
+                    },
+                ).forEach { (pair, action) ->
+                    val (icon, label) = pair
+                    Row(
+                        Modifier.fillMaxWidth().clickable(onClick = action)
+                            .padding(horizontal = 20.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Text(icon, fontSize = 18.sp)
+                        Text(label, fontSize = 15.sp, color = Color(0xFF1F2937))
+                    }
+                }
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -674,10 +806,15 @@ fun ListaChats(vm: WhatsAppViewModel) {
                     Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text("WhatsApp", fontWeight = FontWeight.Bold, fontSize = 20.sp,
+                    Text(if (mostrarArquivadas) "Arquivadas" else "WhatsApp", fontWeight = FontWeight.Bold, fontSize = 20.sp,
                         color = Color.White, modifier = Modifier.weight(1f))
                     WaStatusChip(statusWa)
                     Spacer(Modifier.width(8.dp))
+                    if (mostrarArquivadas || arquivadas.isNotEmpty()) {
+                        IconButton(onClick = { vm.toggleMostrarArquivadas() }, modifier = Modifier.size(36.dp)) {
+                            Text(if (mostrarArquivadas) "💬" else "🗄️", fontSize = 16.sp)
+                        }
+                    }
                     IconButton(onClick = { vm.carregarChats() }, modifier = Modifier.size(36.dp)) {
                         Icon(Icons.Default.Refresh, null, tint = Color.White, modifier = Modifier.size(20.dp))
                     }
@@ -750,14 +887,18 @@ fun ListaChats(vm: WhatsAppViewModel) {
         } else if (chats.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
-                    if (statusWa == "WORKING") "Nenhuma conversa encontrada" else "WhatsApp não conectado",
+                    when {
+                        mostrarArquivadas -> "Nenhuma conversa arquivada"
+                        statusWa == "WORKING" -> "Nenhuma conversa encontrada"
+                        else -> "WhatsApp não conectado"
+                    },
                     color = Gray500, fontSize = 14.sp,
                 )
             }
         } else {
             LazyColumn(state = listScrollState, modifier = Modifier.weight(1f)) {
                 itemsIndexed(chats) { _, c ->
-                    ChatItem(c, vm) { vm.abrirChat(c) }
+                    ChatItem(c, vm, onClick = { vm.abrirChat(c) }, onLongClick = { chatMenuAberto = c })
                     HorizontalDivider(color = Color(0xFFEEEEEE))
                 }
             }
@@ -775,15 +916,16 @@ fun ListaChats(vm: WhatsAppViewModel) {
 
 // ─── Item de conversa ─────────────────────────────────────────────────────────
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun ChatItem(c: WaChat, vm: WhatsAppViewModel, onClick: () -> Unit) {
+fun ChatItem(c: WaChat, vm: WhatsAppViewModel, onClick: () -> Unit, onLongClick: () -> Unit = {}) {
     val fotoMap by vm.fotoMap.collectAsState()
     val labelsMap by vm.labelsMap.collectAsState()
     val fotoUrl = fotoMap[c.id]
     val labels = labelsMap[c.id] ?: emptyList()
 
     Row(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .background(Color.White).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),

@@ -422,3 +422,13 @@ data class Proposta(
     val itens: List<PropostaItem>?,
     val opcionais: List<PropostaOpcional>?,
 )
+
+// ── Integração Google Contatos ──────────────────────────────────────────────────
+data class GoogleContactsStatus(
+    val connected: Boolean = false,
+    val email: String? = null,
+)
+
+data class GoogleAuthUrlResponse(
+    val url: String = "",
+)

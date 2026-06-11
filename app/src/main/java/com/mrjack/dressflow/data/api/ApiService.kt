@@ -295,6 +295,16 @@ interface ApiService {
     @DELETE("vouchers/{id}")
     suspend fun deletarVoucher(@Path("id") id: Int): Response<Unit>
 
+    // ── Integração Google Contatos ───────────────────────────────────────────
+    @GET("google-contacts/status")
+    suspend fun statusGoogleContacts(): Response<GoogleContactsStatus>
+
+    @GET("google-contacts/auth-url")
+    suspend fun authUrlGoogleContacts(): Response<GoogleAuthUrlResponse>
+
+    @DELETE("google-contacts")
+    suspend fun desconectarGoogleContacts(): Response<Any>
+
     // ── Propostas ─────────────────────────────────────────────────────────────
     @GET("propostas")
     suspend fun listarPropostas(): Response<List<Proposta>>

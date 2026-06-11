@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.GsonBuilder
@@ -30,6 +31,7 @@ object PrefsKeys {
     val TOKEN     = stringPreferencesKey("token")
     val USER_JSON = stringPreferencesKey("user_json")
     val LOJA_SLUG = stringPreferencesKey("loja_slug")
+    val WA_ARQUIVADAS = stringSetPreferencesKey("wa_arquivadas")
 
     // SharedPreferences keys (síncrono — usado no interceptor)
     const val SP_TOKEN     = "sp_token"

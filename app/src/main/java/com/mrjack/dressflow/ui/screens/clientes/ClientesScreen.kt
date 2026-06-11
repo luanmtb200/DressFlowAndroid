@@ -17,12 +17,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -176,6 +178,12 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
 
     val userNivel          = MutableStateFlow("VENDEDOR")
 
+    // ── Integração Google Contatos ────────────────────────────────────────────
+    val googleStatus  = MutableStateFlow<com.mrjack.dressflow.data.model.GoogleContactsStatus?>(null)
+    val googleLoading = MutableStateFlow(false)
+    val googleErro    = MutableStateFlow<String?>(null)
+    val googleAuthUrl = MutableStateFlow<String?>(null)
+
     init {
         viewModelScope.launch {
             try {
@@ -187,6 +195,63 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
                     }
                 }
             } catch (_: Exception) {}
+        }
+    }
+
+    fun carregarGoogleStatus() {
+        viewModelScope.launch {
+            googleLoading.value = true
+            googleErro.value = null
+            try {
+                val resp = api.statusGoogleContacts()
+                if (resp.isSuccessful) googleStatus.value = resp.body()
+                else googleErro.value = "Erro ${resp.code()} ao verificar status"
+            } catch (e: Exception) {
+                googleErro.value = "Falha de conexão: ${e.message}"
+            } finally {
+                googleLoading.value = false
+            }
+        }
+    }
+
+    fun conectarGoogle() {
+        viewModelScope.launch {
+            googleLoading.value = true
+            googleErro.value = null
+            try {
+                val resp = api.authUrlGoogleContacts()
+                when {
+                    resp.isSuccessful -> {
+                        val url = resp.body()?.url
+                        if (!url.isNullOrBlank()) googleAuthUrl.value = url
+                        else googleErro.value = "Link de conexão indisponível"
+                    }
+                    resp.code() == 403 -> googleErro.value = "Apenas usuários da gerência podem conectar o Google."
+                    resp.code() == 500 -> googleErro.value = "Integração com Google ainda não configurada no servidor."
+                    else -> googleErro.value = "Erro ${resp.code()} ao gerar link de conexão"
+                }
+            } catch (e: Exception) {
+                googleErro.value = "Falha de conexão: ${e.message}"
+            } finally {
+                googleLoading.value = false
+            }
+        }
+    }
+
+    fun desconectarGoogle() {
+        viewModelScope.launch {
+            googleLoading.value = true
+            googleErro.value = null
+            try {
+                val resp = api.desconectarGoogleContacts()
+                if (resp.isSuccessful) carregarGoogleStatus()
+                else if (resp.code() == 403) googleErro.value = "Apenas usuários da gerência podem desconectar o Google."
+                else googleErro.value = "Erro ${resp.code()} ao desconectar"
+            } catch (e: Exception) {
+                googleErro.value = "Falha de conexão: ${e.message}"
+            } finally {
+                googleLoading.value = false
+            }
         }
     }
 
@@ -329,9 +394,15 @@ fun ClientesScreen(vm: ClientesViewModel = viewModel()) {
 @Composable
 fun ListaClientesScreen(vm: ClientesViewModel) {
     val tabIdx by vm.tabIdx.collectAsState()
+    val userNivel by vm.userNivel.collectAsState()
+    var showGoogleDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(tabIdx) {
         if (tabIdx == 1) vm.carregarDevolucoes()
+    }
+
+    if (showGoogleDialog) {
+        GoogleContatosDialog(vm = vm, onDismiss = { showGoogleDialog = false })
     }
 
     Column(Modifier.fillMaxSize()) {
@@ -339,6 +410,11 @@ fun ListaClientesScreen(vm: ClientesViewModel) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Clientes", fontWeight = FontWeight.Bold, fontSize = 22.sp, color = Gray900, modifier = Modifier.weight(1f))
+                    if (userNivel == "ADMIN" || userNivel == "GERENCIA" || userNivel == "DIRETOR") {
+                        IconButton(onClick = { showGoogleDialog = true }) {
+                            Icon(Icons.Default.Link, contentDescription = "Google Contatos", tint = Gray500)
+                        }
+                    }
                     Button(
                         onClick = { vm.abrirFormCliente() },
                         colors = ButtonDefaults.buttonColors(containerColor = Blue600),
@@ -369,6 +445,88 @@ fun ListaClientesScreen(vm: ClientesViewModel) {
         when (tabIdx) {
             0 -> ClientesTabContent(vm)
             1 -> DevolucoesTabContent(vm)
+        }
+    }
+}
+
+// ─── Integração Google Contatos ───────────────────────────────────────────────
+
+@Composable
+fun GoogleContatosDialog(vm: ClientesViewModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val status  by vm.googleStatus.collectAsState()
+    val loading by vm.googleLoading.collectAsState()
+    val erro    by vm.googleErro.collectAsState()
+    val authUrl by vm.googleAuthUrl.collectAsState()
+
+    LaunchedEffect(Unit) { vm.carregarGoogleStatus() }
+
+    LaunchedEffect(authUrl) {
+        authUrl?.let { url ->
+            try {
+                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url)))
+            } catch (_: Exception) {}
+            vm.googleAuthUrl.value = null
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { vm.googleErro.value = null }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(20.dp), color = Color.White, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                Text("Google Contatos", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = Color(0xFF1F2937))
+                Text(
+                    "Mantém os clientes cadastrados sincronizados com os Contatos da sua conta Google. " +
+                        "Sempre que um cliente for criado ou editado, ele é criado/atualizado automaticamente nos seus contatos.",
+                    fontSize = 12.sp, color = Gray500,
+                )
+
+                if (erro != null) {
+                    Surface(color = Red100, shape = RoundedCornerShape(8.dp)) {
+                        Text(erro!!, modifier = Modifier.padding(10.dp), color = Red500, fontSize = 12.sp)
+                    }
+                }
+
+                if (loading && status == null) {
+                    Box(Modifier.fillMaxWidth().height(60.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = Blue600)
+                    }
+                } else if (status?.connected == true) {
+                    Surface(color = Green100, shape = RoundedCornerShape(8.dp)) {
+                        Column(Modifier.padding(12.dp)) {
+                            Text("Conectado", fontWeight = FontWeight.Medium, fontSize = 13.sp, color = Green600)
+                            status?.email?.let { Text(it, fontSize = 11.sp, color = Green600) }
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = { vm.desconectarGoogle() },
+                        enabled = !loading,
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Red500),
+                    ) { Text(if (loading) "Desconectando..." else "Desconectar") }
+                } else {
+                    Surface(color = Gray100, shape = RoundedCornerShape(8.dp)) {
+                        Text("Nenhuma conta Google conectada.", modifier = Modifier.padding(12.dp), fontSize = 13.sp, color = Gray500)
+                    }
+                    Button(
+                        onClick = { vm.conectarGoogle() },
+                        enabled = !loading,
+                        colors = ButtonDefaults.buttonColors(containerColor = Blue600),
+                        modifier = Modifier.fillMaxWidth().height(44.dp),
+                        shape = RoundedCornerShape(10.dp),
+                    ) { Text(if (loading) "Redirecionando..." else "Conectar Google") }
+                }
+
+                OutlinedButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth().height(44.dp),
+                    shape = RoundedCornerShape(10.dp),
+                ) { Text("Fechar") }
+            }
         }
     }
 }
