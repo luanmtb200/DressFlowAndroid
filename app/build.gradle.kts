@@ -12,8 +12,8 @@ android {
         applicationId = "com.mrjack.dressflow"
         minSdk = 26
         targetSdk = 34
-        versionCode = 31
-        versionName = "4.5"
+        versionCode = 32
+        versionName = "4.6"
 
         // URL base da API Railway — mude aqui se o domínio mudar
         buildConfigField("String", "API_BASE_URL", "\"https://optimistic-peace-production-0a23.up.railway.app/api/\"")
