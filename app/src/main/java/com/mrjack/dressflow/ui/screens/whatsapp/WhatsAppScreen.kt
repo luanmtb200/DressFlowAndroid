@@ -47,6 +47,7 @@ import com.mrjack.dressflow.data.api.dataStore
 import com.mrjack.dressflow.data.model.EtiquetaWa
 import com.mrjack.dressflow.data.model.GatewayConversa
 import com.mrjack.dressflow.data.model.GatewayMensagem
+import com.mrjack.dressflow.data.model.UsuarioLogado
 import com.mrjack.dressflow.data.model.Vendedor
 import com.mrjack.dressflow.data.model.WaChat
 import com.mrjack.dressflow.data.model.WaLastMessage
@@ -127,6 +128,7 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
     val erro           = MutableStateFlow<String?>(null)
     val fotoMap        = MutableStateFlow<Map<String, String?>>(emptyMap())
     val vendedores     = MutableStateFlow<List<Vendedor>>(emptyList())
+    val usuarioVendedorId = MutableStateFlow<Int?>(null)
     val arquivadas        = MutableStateFlow<Set<String>>(emptySet())
     val mostrarArquivadas = MutableStateFlow(false)
 
@@ -147,6 +149,17 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
                 app.dataStore.data.collect { prefs ->
                     arquivadas.value = prefs[PrefsKeys.WA_ARQUIVADAS] ?: emptySet()
                     aplicarFiltros()
+                }
+            } catch (_: Exception) {}
+        }
+        viewModelScope.launch {
+            try {
+                app.dataStore.data.collect { prefs ->
+                    val json = prefs[PrefsKeys.USER_JSON]
+                    if (json != null) {
+                        val u = gson.fromJson(json, UsuarioLogado::class.java)
+                        usuarioVendedorId.value = u?.vendedorId
+                    }
                 }
             } catch (_: Exception) {}
         }
@@ -1591,6 +1604,7 @@ fun WaBubble(msg: WaMensagem, onLongPress: (WaMensagem) -> Unit) {
 @Composable
 fun AgendamentoDialog(chat: WaChat, vm: WhatsAppViewModel, onDismiss: () -> Unit) {
     val vendedores by vm.vendedores.collectAsState()
+    val usuarioVendedorId by vm.usuarioVendedorId.collectAsState()
 
     val telRaw = remember(chat) {
         // Prefere phoneNumber/telefone reais; nunca usa LID (@lid ID) como telefone
@@ -1612,6 +1626,10 @@ fun AgendamentoDialog(chat: WaChat, vm: WhatsAppViewModel, onDismiss: () -> Unit
     var horaSel      by remember { mutableStateOf("") }
     var vendedorId   by remember { mutableStateOf<Int?>(null) }
     var observacao   by remember { mutableStateOf("") }
+
+    LaunchedEffect(usuarioVendedorId) {
+        if (vendedorId == null) vendedorId = usuarioVendedorId
+    }
     var salvando     by remember { mutableStateOf(false) }
     var ok           by remember { mutableStateOf(false) }
     var erro         by remember { mutableStateOf<String?>(null) }
@@ -1733,13 +1751,12 @@ fun AgendamentoDialog(chat: WaChat, vm: WhatsAppViewModel, onDismiss: () -> Unit
                         ExposedDropdownMenuBox(expanded = vendExpand, onExpandedChange = { vendExpand = it }) {
                             OutlinedTextField(
                                 value = vendNome, onValueChange = {}, readOnly = true,
-                                label = { Text("Vendedor") },
+                                label = { Text("Vendedor *") },
                                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(vendExpand) },
                                 modifier = Modifier.menuAnchor().fillMaxWidth(),
                                 shape = RoundedCornerShape(10.dp), singleLine = true,
                             )
                             ExposedDropdownMenu(expanded = vendExpand, onDismissRequest = { vendExpand = false }) {
-                                DropdownMenuItem(text = { Text("Sem vendedor") }, onClick = { vendedorId = null; vendExpand = false })
                                 vendedores.filter { it.ativo }.forEach { v ->
                                     DropdownMenuItem(text = { Text(v.nome) }, onClick = { vendedorId = v.id; vendExpand = false })
                                 }
@@ -1760,8 +1777,8 @@ fun AgendamentoDialog(chat: WaChat, vm: WhatsAppViewModel, onDismiss: () -> Unit
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         Button(
                             onClick = {
-                                if (nomeCliente.isBlank() || dataSel.isBlank() || horaSel.isBlank()) {
-                                    erro = "Preencha nome, data e horário"
+                                if (nomeCliente.isBlank() || dataSel.isBlank() || horaSel.isBlank() || vendedorId == null) {
+                                    erro = "Preencha nome, data, horário e vendedor"
                                     return@Button
                                 }
                                 salvando = true; erro = null
