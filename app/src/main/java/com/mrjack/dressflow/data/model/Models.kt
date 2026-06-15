@@ -112,6 +112,21 @@ data class Agendamento(
     val vendedor: VendedorResumo? = null,
 )
 
+// ── Tarefa ────────────────────────────────────────────────────────────────────
+data class Tarefa(
+    val id: Int,
+    val titulo: String,
+    val descricao: String? = null,
+    val prazo: String? = null,
+    val recorrente: Boolean,
+    val concluida: Boolean,
+    val concluidaHoje: Boolean,
+    val concluidaPorNome: String? = null,
+    val criadoPorNome: String,
+    val criadoPorId: Int,
+    val usuarioId: Int,
+)
+
 // ── Padronização ──────────────────────────────────────────────────────────────
 data class Padronizacao(
     val id: Int,

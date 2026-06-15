@@ -92,6 +92,22 @@ interface ApiService {
     @DELETE("agendamentos/{id}")
     suspend fun deletarAgendamento(@Path("id") id: Int): Response<Unit>
 
+    // ── Tarefas ──────────────────────────────────────────────────────────────
+    @GET("tarefas")
+    suspend fun listarTarefas(): Response<List<Tarefa>>
+
+    @POST("tarefas")
+    suspend fun criarTarefa(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Tarefa>
+
+    @PATCH("tarefas/{id}")
+    suspend fun atualizarTarefa(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Tarefa>
+
+    @PATCH("tarefas/{id}/concluir")
+    suspend fun concluirTarefa(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Tarefa>
+
+    @DELETE("tarefas/{id}")
+    suspend fun deletarTarefa(@Path("id") id: Int): Response<Unit>
+
     // ── Padronizações ─────────────────────────────────────────────────────────
     @GET("padronizacoes")
     suspend fun listarPadronizacoes(

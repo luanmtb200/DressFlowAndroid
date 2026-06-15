@@ -175,7 +175,9 @@ private fun getAlerta(dataEvento: String?): AlertaData {
 fun MeuPainelScreen(
     nomeVendedor: String,
     vendedorId: Int?,
+    usuarioId: Int,
     vm: MeuPainelViewModel = viewModel(),
+    tarefasVm: TarefasViewModel = viewModel(),
 ) {
     var aba by remember { mutableIntStateOf(0) }
     val mesAtual = remember { mesAtualStr() }
@@ -201,6 +203,10 @@ fun MeuPainelScreen(
         }
     }
 
+    val tarefas by tarefasVm.tarefas.collectAsState()
+    val tarefasPendentes = remember(tarefas) { tarefas.count { !it.concluidaHoje } }
+    LaunchedEffect(usuarioId) { tarefasVm.carregar() }
+
     val orcamentos by remember {
         derivedStateOf {
             if (verTodosMeses) orcamentosRaw
@@ -225,13 +231,6 @@ fun MeuPainelScreen(
         }
     }
 
-    if (vendedorId == null) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Perfil sem vendedorId configurado.", color = Gray500, fontSize = 14.sp)
-        }
-        return
-    }
-
     Column(Modifier.fillMaxSize()) {
         // Cabeçalho
         Column(Modifier.padding(horizontal = 20.dp).padding(top = 20.dp, bottom = 8.dp)) {
@@ -252,109 +251,135 @@ fun MeuPainelScreen(
             Spacer(Modifier.height(8.dp))
         }
 
-        // Tabs
-        TabRow(
-            selectedTabIndex = aba,
-            containerColor = Color.White,
-            contentColor = Blue600,
-            divider = { HorizontalDivider(color = Gray200) },
-        ) {
-            Tab(selected = aba == 0, onClick = { aba = 0 }) {
-                Row(
-                    modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text("Minhas Locações", fontSize = 13.sp, fontWeight = if (aba == 0) FontWeight.SemiBold else FontWeight.Normal)
-                }
-            }
-            Tab(selected = aba == 1, onClick = { aba = 1 }) {
-                Row(
-                    modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text("Meus Orçamentos", fontSize = 13.sp, fontWeight = if (aba == 1) FontWeight.SemiBold else FontWeight.Normal)
-                    if (orcamentos.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(Amber100)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text("${orcamentos.size}", fontSize = 11.sp, color = Yellow700, fontWeight = FontWeight.Medium)
-                        }
-                    }
-                    if (passados > 0) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(Red100)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text("$passados vencido${if (passados != 1) "s" else ""}", fontSize = 10.sp, color = Red500, fontWeight = FontWeight.Medium)
-                        }
-                    } else if (urgentes > 0) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(50))
-                                .background(Yellow200)
-                                .padding(horizontal = 6.dp, vertical = 2.dp),
-                        ) {
-                            Text("$urgentes urgente${if (urgentes != 1) "s" else ""}", fontSize = 10.sp, color = Yellow800, fontWeight = FontWeight.Medium)
-                        }
+        if (vendedorId != null) {
+            // Tabs
+            TabRow(
+                selectedTabIndex = aba,
+                containerColor = Color.White,
+                contentColor = Blue600,
+                divider = { HorizontalDivider(color = Gray200) },
+            ) {
+                Tab(selected = aba == 0, onClick = { aba = 0 }) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Minhas Locações", fontSize = 13.sp, fontWeight = if (aba == 0) FontWeight.SemiBold else FontWeight.Normal)
                     }
                 }
+                Tab(selected = aba == 1, onClick = { aba = 1 }) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Meus Orçamentos", fontSize = 13.sp, fontWeight = if (aba == 1) FontWeight.SemiBold else FontWeight.Normal)
+                        if (orcamentos.isNotEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Amber100)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text("${orcamentos.size}", fontSize = 11.sp, color = Yellow700, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                        if (passados > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Red100)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text("$passados vencido${if (passados != 1) "s" else ""}", fontSize = 10.sp, color = Red500, fontWeight = FontWeight.Medium)
+                            }
+                        } else if (urgentes > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Yellow200)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text("$urgentes urgente${if (urgentes != 1) "s" else ""}", fontSize = 10.sp, color = Yellow800, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+                Tab(selected = aba == 2, onClick = { aba = 2 }) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Tarefas", fontSize = 13.sp, fontWeight = if (aba == 2) FontWeight.SemiBold else FontWeight.Normal)
+                        if (tarefasPendentes > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Blue100)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text("$tarefasPendentes", fontSize = 11.sp, color = Blue700, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
             }
-        }
 
-        when (aba) {
-            0 -> MinhasLocacoesTab(
-                locacoes = locFiltradas,
-                isLoading = isLoadingMes,
-                mes = mes,
-                busca = buscaLoc,
-                onBuscaChange = { buscaLoc = it },
-                onMesChange = { mes = it; buscaLoc = "" },
-                onEditar = { editarLocacao = it },
-            )
-            1 -> MeusOrcamentosTab(
-                orcamentos = orcFiltrados,
-                cancelados = orcamentosCancelados.filter {
-                    buscaOrc.isBlank() || it.cliente?.nome?.contains(buscaOrc, ignoreCase = true) == true
-                },
-                isLoading = isLoadingOrc,
-                busca = buscaOrc,
-                verTodosMeses = verTodosMeses,
-                onBuscaChange = { buscaOrc = it },
-                onToggleMeses = { verTodosMeses = !verTodosMeses },
-                onMarcarPerdido = { modalOrc = it },
-                onEditar = { editarLocacao = it },
-                vm = vm,
-            )
+            when (aba) {
+                0 -> MinhasLocacoesTab(
+                    locacoes = locFiltradas,
+                    isLoading = isLoadingMes,
+                    mes = mes,
+                    busca = buscaLoc,
+                    onBuscaChange = { buscaLoc = it },
+                    onMesChange = { mes = it; buscaLoc = "" },
+                    onEditar = { editarLocacao = it },
+                )
+                1 -> MeusOrcamentosTab(
+                    orcamentos = orcFiltrados,
+                    cancelados = orcamentosCancelados.filter {
+                        buscaOrc.isBlank() || it.cliente?.nome?.contains(buscaOrc, ignoreCase = true) == true
+                    },
+                    isLoading = isLoadingOrc,
+                    busca = buscaOrc,
+                    verTodosMeses = verTodosMeses,
+                    onBuscaChange = { buscaOrc = it },
+                    onToggleMeses = { verTodosMeses = !verTodosMeses },
+                    onMarcarPerdido = { modalOrc = it },
+                    onEditar = { editarLocacao = it },
+                    vm = vm,
+                )
+                else -> TarefasTab(usuarioId = usuarioId, vm = tarefasVm)
+            }
+        } else {
+            TarefasTab(usuarioId = usuarioId, vm = tarefasVm)
         }
     }
 
     // Modal editar medidas
-    editarLocacao?.let { loc ->
-        EditarMedidasModal(
-            locacao = loc,
-            onDismiss = { editarLocacao = null },
-            onSalvar = { body ->
-                vm.editarMedidas(loc.id, body, vendedorId, mes) { editarLocacao = null }
-            },
-        )
-    }
+    if (vendedorId != null) {
+        editarLocacao?.let { loc ->
+            EditarMedidasModal(
+                locacao = loc,
+                onDismiss = { editarLocacao = null },
+                onSalvar = { body ->
+                    vm.editarMedidas(loc.id, body, vendedorId, mes) { editarLocacao = null }
+                },
+            )
+        }
 
-    // Modal marcar como perdido
-    modalOrc?.let { loc ->
-        MarcarPerdidoModal(
-            locacao = loc,
-            onDismiss = { modalOrc = null },
-            onConfirmar = { motivo ->
-                vm.solicitarCancelamento(loc.id, motivo, vendedorId) { modalOrc = null }
-            },
-        )
+        // Modal marcar como perdido
+        modalOrc?.let { loc ->
+            MarcarPerdidoModal(
+                locacao = loc,
+                onDismiss = { modalOrc = null },
+                onConfirmar = { motivo ->
+                    vm.solicitarCancelamento(loc.id, motivo, vendedorId) { modalOrc = null }
+                },
+            )
+        }
     }
 }
 

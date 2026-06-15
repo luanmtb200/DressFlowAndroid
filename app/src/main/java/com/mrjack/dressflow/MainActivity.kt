@@ -229,7 +229,7 @@ fun MainApp(user: com.mrjack.dressflow.data.model.UsuarioLogado, onLogout: () ->
             val startRoute = screens.firstOrNull()?.route ?: Screen.Vendas.route
             NavHost(navController = navController, startDestination = startRoute) {
                 composable(Screen.Dashboard.route)     { DashboardScreen() }
-                composable(Screen.MeuPainel.route)     { MeuPainelScreen(nomeVendedor = user.nome, vendedorId = user.vendedorId) }
+                composable(Screen.MeuPainel.route)     { MeuPainelScreen(nomeVendedor = user.nome, vendedorId = user.vendedorId, usuarioId = user.id) }
                 composable(Screen.Clientes.route)      { ClientesScreen() }
                 composable(Screen.Vendas.route)        { VendasScreen() }
                 composable(Screen.Agenda.route)        { AgendaScreen() }
