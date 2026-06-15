@@ -118,7 +118,7 @@ data class Tarefa(
     val titulo: String,
     val descricao: String? = null,
     val prazo: String? = null,
-    val recorrente: Boolean,
+    val recorrencia: String? = null,
     val concluida: Boolean,
     val concluidaHoje: Boolean,
     val concluidaPorNome: String? = null,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material3.*
@@ -59,7 +60,7 @@ class TarefasViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun criar(titulo: String, descricao: String?, prazo: String?, recorrente: Boolean) {
+    fun criar(titulo: String, descricao: String?, prazo: String?, recorrencia: String?) {
         viewModelScope.launch {
             isSaving.value = true
             erro.value = null
@@ -68,12 +69,33 @@ class TarefasViewModel(app: Application) : AndroidViewModel(app) {
                     "titulo" to titulo,
                     "descricao" to descricao,
                     "prazo" to prazo,
-                    "recorrente" to recorrente,
+                    "recorrencia" to recorrencia,
                 )
                 withContext(Dispatchers.IO) { api.criarTarefa(body) }
                 carregar()
             } catch (e: Exception) {
                 erro.value = "Erro ao criar tarefa: ${e.message}"
+            } finally {
+                isSaving.value = false
+            }
+        }
+    }
+
+    fun editar(id: Int, titulo: String, descricao: String?, prazo: String?, recorrencia: String?) {
+        viewModelScope.launch {
+            isSaving.value = true
+            erro.value = null
+            try {
+                val body = mapOf<String, Any?>(
+                    "titulo" to titulo,
+                    "descricao" to descricao,
+                    "prazo" to prazo,
+                    "recorrencia" to recorrencia,
+                )
+                withContext(Dispatchers.IO) { api.atualizarTarefa(id, body) }
+                carregar()
+            } catch (e: Exception) {
+                erro.value = "Erro ao editar tarefa: ${e.message}"
             } finally {
                 isSaving.value = false
             }
@@ -125,6 +147,20 @@ private fun fmtPrazo(prazo: String?): String? {
     return try { "${prazo.substring(8, 10)}/${prazo.substring(5, 7)}" } catch (_: Exception) { null }
 }
 
+private val OPCOES_RECORRENCIA = listOf<Pair<String?, String>>(
+    null to "Sem repetição",
+    "DIARIA" to "Diária",
+    "SEMANAL" to "Semanal",
+    "MENSAL" to "Mensal",
+)
+
+private fun labelRecorrencia(recorrencia: String?): String = when (recorrencia) {
+    "SEMANAL" -> "Semanal"
+    "MENSAL" -> "Mensal"
+    "DIARIA" -> "Diária"
+    else -> "Diária"
+}
+
 // ── Tela principal ────────────────────────────────────────────────────────────
 
 @Composable
@@ -135,6 +171,7 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
     val erro by vm.erro.collectAsState()
 
     var showDialog by remember { mutableStateOf(false) }
+    var editando by remember { mutableStateOf<Tarefa?>(null) }
     var expandidoHoje by remember { mutableStateOf(true) }
     var expandidoRecorrentes by remember { mutableStateOf(true) }
     var expandidoProximas by remember { mutableStateOf(true) }
@@ -142,8 +179,8 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
 
     LaunchedEffect(usuarioId) { vm.carregar() }
 
-    val recorrentes = remember(tarefas) { tarefas.filter { it.recorrente } }
-    val naoRecorrentes = remember(tarefas) { tarefas.filter { !it.recorrente } }
+    val recorrentes = remember(tarefas) { tarefas.filter { it.recorrencia != null } }
+    val naoRecorrentes = remember(tarefas) { tarefas.filter { it.recorrencia == null } }
     val concluidas = remember(naoRecorrentes) { naoRecorrentes.filter { it.concluida } }
     val pendentes = remember(naoRecorrentes) { naoRecorrentes.filter { !it.concluida } }
     val hojeAtrasadas = remember(pendentes) {
@@ -191,6 +228,7 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
                     isSaving = isSaving,
                     onConcluir = { id, c -> vm.concluir(id, c) },
                     onRemover = { vm.remover(it) },
+                    onEditar = { editando = it; showDialog = true },
                 )
                 tarefaSecao(
                     titulo = "Recorrentes (diárias)",
@@ -201,6 +239,7 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
                     isSaving = isSaving,
                     onConcluir = { id, c -> vm.concluir(id, c) },
                     onRemover = { vm.remover(it) },
+                    onEditar = { editando = it; showDialog = true },
                 )
                 tarefaSecao(
                     titulo = "Próximas",
@@ -211,6 +250,7 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
                     isSaving = isSaving,
                     onConcluir = { id, c -> vm.concluir(id, c) },
                     onRemover = { vm.remover(it) },
+                    onEditar = { editando = it; showDialog = true },
                 )
                 tarefaSecao(
                     titulo = "Concluídas",
@@ -221,6 +261,7 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
                     isSaving = isSaving,
                     onConcluir = { id, c -> vm.concluir(id, c) },
                     onRemover = { vm.remover(it) },
+                    onEditar = { editando = it; showDialog = true },
                 )
 
                 item { Spacer(Modifier.height(64.dp)) }
@@ -228,7 +269,7 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
         }
 
         FloatingActionButton(
-            onClick = { showDialog = true },
+            onClick = { editando = null; showDialog = true },
             containerColor = Blue600,
             contentColor = Color.White,
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
@@ -238,13 +279,17 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
     }
 
     if (showDialog) {
-        NovaTarefaDialog(
+        TarefaDialog(
+            editando = editando,
             isSaving = isSaving,
-            onConfirmar = { titulo, descricao, prazo, recorrente ->
-                vm.criar(titulo, descricao, prazo, recorrente)
+            onConfirmar = { titulo, descricao, prazo, recorrencia ->
+                val atual = editando
+                if (atual != null) vm.editar(atual.id, titulo, descricao, prazo, recorrencia)
+                else vm.criar(titulo, descricao, prazo, recorrencia)
                 showDialog = false
+                editando = null
             },
-            onDismiss = { showDialog = false },
+            onDismiss = { showDialog = false; editando = null },
         )
     }
 }
@@ -260,6 +305,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tarefaSecao(
     isSaving: Boolean,
     onConcluir: (Int, Boolean) -> Unit,
     onRemover: (Int) -> Unit,
+    onEditar: (Tarefa) -> Unit,
 ) {
     if (tarefas.isEmpty()) return
 
@@ -299,6 +345,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.tarefaSecao(
                 isSaving = isSaving,
                 onConcluir = onConcluir,
                 onRemover = onRemover,
+                onEditar = onEditar,
             )
         }
     }
@@ -313,8 +360,9 @@ private fun TarefaItem(
     isSaving: Boolean,
     onConcluir: (Int, Boolean) -> Unit,
     onRemover: (Int) -> Unit,
+    onEditar: (Tarefa) -> Unit,
 ) {
-    val checked = if (tarefa.recorrente) tarefa.concluidaHoje else tarefa.concluida
+    val checked = if (tarefa.recorrencia != null) tarefa.concluidaHoje else tarefa.concluida
     val status = statusPrazo(tarefa.prazo)
 
     Card(
@@ -343,9 +391,9 @@ private fun TarefaItem(
                     Text(tarefa.descricao, fontSize = 11.sp, color = Gray500, maxLines = 2)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (tarefa.recorrente) {
+                    if (tarefa.recorrencia != null) {
                         Box(modifier = Modifier.clip(RoundedCornerShape(50)).background(Indigo100).padding(horizontal = 6.dp, vertical = 1.dp)) {
-                            Text("Diária", fontSize = 10.sp, color = Indigo600, fontWeight = FontWeight.Medium)
+                            Text(labelRecorrencia(tarefa.recorrencia), fontSize = 10.sp, color = Indigo600, fontWeight = FontWeight.Medium)
                         }
                     }
                     fmtPrazo(tarefa.prazo)?.let { prazoFmt ->
@@ -367,6 +415,9 @@ private fun TarefaItem(
                 }
             }
             if (tarefa.criadoPorId == usuarioId) {
+                IconButton(onClick = { onEditar(tarefa) }, modifier = Modifier.size(32.dp), enabled = !isSaving) {
+                    Icon(Icons.Default.Edit, contentDescription = "Editar", tint = Gray500, modifier = Modifier.size(16.dp))
+                }
                 IconButton(onClick = { onRemover(tarefa.id) }, modifier = Modifier.size(32.dp), enabled = !isSaving) {
                     Icon(Icons.Default.Delete, contentDescription = "Excluir", tint = Gray500, modifier = Modifier.size(16.dp))
                 }
@@ -375,22 +426,23 @@ private fun TarefaItem(
     }
 }
 
-// ── Diálogo: nova tarefa ─────────────────────────────────────────────────────
+// ── Diálogo: nova / editar tarefa ────────────────────────────────────────────
 
 @Composable
-private fun NovaTarefaDialog(
+private fun TarefaDialog(
+    editando: Tarefa?,
     isSaving: Boolean,
-    onConfirmar: (titulo: String, descricao: String?, prazo: String?, recorrente: Boolean) -> Unit,
+    onConfirmar: (titulo: String, descricao: String?, prazo: String?, recorrencia: String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    var titulo by remember { mutableStateOf("") }
-    var descricao by remember { mutableStateOf("") }
-    var prazo by remember { mutableStateOf("") }
-    var recorrente by remember { mutableStateOf(false) }
+    var titulo by remember { mutableStateOf(editando?.titulo ?: "") }
+    var descricao by remember { mutableStateOf(editando?.descricao ?: "") }
+    var prazo by remember { mutableStateOf(editando?.prazo?.take(10) ?: "") }
+    var recorrencia by remember { mutableStateOf(editando?.recorrencia) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Nova tarefa", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
+        title = { Text(if (editando != null) "Editar tarefa" else "Nova tarefa", fontWeight = FontWeight.Bold, fontSize = 17.sp) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(
@@ -410,15 +462,17 @@ private fun NovaTarefaDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                 )
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Checkbox(
-                        checked = recorrente,
-                        onCheckedChange = { recorrente = it; if (it) prazo = "" },
-                        colors = CheckboxDefaults.colors(checkedColor = Blue600),
-                    )
-                    Text("Tarefa diária (recorrente)", fontSize = 13.sp, color = Gray700)
+                Text("Repetição", fontSize = 12.sp, color = Gray500, fontWeight = FontWeight.Medium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OPCOES_RECORRENCIA.forEach { (valor, label) ->
+                        FilterChip(
+                            selected = recorrencia == valor,
+                            onClick = { recorrencia = valor; if (valor != null) prazo = "" },
+                            label = { Text(label, fontSize = 11.sp) },
+                        )
+                    }
                 }
-                if (!recorrente) {
+                if (recorrencia == null) {
                     DatePickerField(
                         label = "Prazo (opcional)",
                         value = prazo,
@@ -431,13 +485,13 @@ private fun NovaTarefaDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onConfirmar(titulo.trim(), descricao.trim().ifBlank { null }, prazo.ifBlank { null }, recorrente)
+                    onConfirmar(titulo.trim(), descricao.trim().ifBlank { null }, prazo.ifBlank { null }, recorrencia)
                 },
                 enabled = titulo.isNotBlank() && !isSaving,
                 colors = ButtonDefaults.buttonColors(containerColor = Blue600),
             ) {
                 if (isSaving) CircularProgressIndicator(Modifier.size(14.dp), color = Color.White, strokeWidth = 2.dp)
-                else Text("Criar")
+                else Text(if (editando != null) "Salvar" else "Criar")
             }
         },
         dismissButton = {
