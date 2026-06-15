@@ -60,7 +60,7 @@ class TarefasViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun criar(titulo: String, descricao: String?, prazo: String?, recorrencia: String?) {
+    fun criar(titulo: String, descricao: String?, prazo: String?, recorrencia: String?, diaRecorrencia: Int?) {
         viewModelScope.launch {
             isSaving.value = true
             erro.value = null
@@ -70,6 +70,7 @@ class TarefasViewModel(app: Application) : AndroidViewModel(app) {
                     "descricao" to descricao,
                     "prazo" to prazo,
                     "recorrencia" to recorrencia,
+                    "diaRecorrencia" to diaRecorrencia,
                 )
                 withContext(Dispatchers.IO) { api.criarTarefa(body) }
                 carregar()
@@ -81,7 +82,7 @@ class TarefasViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun editar(id: Int, titulo: String, descricao: String?, prazo: String?, recorrencia: String?) {
+    fun editar(id: Int, titulo: String, descricao: String?, prazo: String?, recorrencia: String?, diaRecorrencia: Int?) {
         viewModelScope.launch {
             isSaving.value = true
             erro.value = null
@@ -91,6 +92,7 @@ class TarefasViewModel(app: Application) : AndroidViewModel(app) {
                     "descricao" to descricao,
                     "prazo" to prazo,
                     "recorrencia" to recorrencia,
+                    "diaRecorrencia" to diaRecorrencia,
                 )
                 withContext(Dispatchers.IO) { api.atualizarTarefa(id, body) }
                 carregar()
@@ -154,9 +156,14 @@ private val OPCOES_RECORRENCIA = listOf<Pair<String?, String>>(
     "MENSAL" to "Mensal",
 )
 
-private fun labelRecorrencia(recorrencia: String?): String = when (recorrencia) {
-    "SEMANAL" -> "Semanal"
-    "MENSAL" -> "Mensal"
+private val DIAS_SEMANA = listOf(
+    0 to "Domingo", 1 to "Segunda", 2 to "Terça", 3 to "Quarta", 4 to "Quinta", 5 to "Sexta", 6 to "Sábado",
+)
+private val DIAS_SEMANA_ABREV = listOf("Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb")
+
+private fun labelRecorrencia(recorrencia: String?, diaRecorrencia: Int?): String = when (recorrencia) {
+    "SEMANAL" -> if (diaRecorrencia != null) "Semanal (${DIAS_SEMANA_ABREV[diaRecorrencia]})" else "Semanal"
+    "MENSAL" -> if (diaRecorrencia != null) "Mensal (dia $diaRecorrencia)" else "Mensal"
     "DIARIA" -> "Diária"
     else -> "Diária"
 }
@@ -282,10 +289,10 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
         TarefaDialog(
             editando = editando,
             isSaving = isSaving,
-            onConfirmar = { titulo, descricao, prazo, recorrencia ->
+            onConfirmar = { titulo, descricao, prazo, recorrencia, diaRecorrencia ->
                 val atual = editando
-                if (atual != null) vm.editar(atual.id, titulo, descricao, prazo, recorrencia)
-                else vm.criar(titulo, descricao, prazo, recorrencia)
+                if (atual != null) vm.editar(atual.id, titulo, descricao, prazo, recorrencia, diaRecorrencia)
+                else vm.criar(titulo, descricao, prazo, recorrencia, diaRecorrencia)
                 showDialog = false
                 editando = null
             },
@@ -393,7 +400,7 @@ private fun TarefaItem(
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (tarefa.recorrencia != null) {
                         Box(modifier = Modifier.clip(RoundedCornerShape(50)).background(Indigo100).padding(horizontal = 6.dp, vertical = 1.dp)) {
-                            Text(labelRecorrencia(tarefa.recorrencia), fontSize = 10.sp, color = Indigo600, fontWeight = FontWeight.Medium)
+                            Text(labelRecorrencia(tarefa.recorrencia, tarefa.diaRecorrencia), fontSize = 10.sp, color = Indigo600, fontWeight = FontWeight.Medium)
                         }
                     }
                     fmtPrazo(tarefa.prazo)?.let { prazoFmt ->
@@ -428,17 +435,20 @@ private fun TarefaItem(
 
 // ── Diálogo: nova / editar tarefa ────────────────────────────────────────────
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TarefaDialog(
     editando: Tarefa?,
     isSaving: Boolean,
-    onConfirmar: (titulo: String, descricao: String?, prazo: String?, recorrencia: String?) -> Unit,
+    onConfirmar: (titulo: String, descricao: String?, prazo: String?, recorrencia: String?, diaRecorrencia: Int?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     var titulo by remember { mutableStateOf(editando?.titulo ?: "") }
     var descricao by remember { mutableStateOf(editando?.descricao ?: "") }
     var prazo by remember { mutableStateOf(editando?.prazo?.take(10) ?: "") }
     var recorrencia by remember { mutableStateOf(editando?.recorrencia) }
+    var diaRecorrencia by remember { mutableStateOf(editando?.diaRecorrencia) }
+    var expandidoDia by remember { mutableStateOf(false) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -467,7 +477,7 @@ private fun TarefaDialog(
                     OPCOES_RECORRENCIA.forEach { (valor, label) ->
                         FilterChip(
                             selected = recorrencia == valor,
-                            onClick = { recorrencia = valor; if (valor != null) prazo = "" },
+                            onClick = { recorrencia = valor; diaRecorrencia = null; if (valor != null) prazo = "" },
                             label = { Text(label, fontSize = 11.sp) },
                         )
                     }
@@ -480,12 +490,34 @@ private fun TarefaDialog(
                         modifier = Modifier.fillMaxWidth(),
                     )
                 }
+                if (recorrencia == "SEMANAL" || recorrencia == "MENSAL") {
+                    val opcoesDia = if (recorrencia == "SEMANAL") DIAS_SEMANA else (1..31).map { it to "Dia $it" }
+                    val labelDia = opcoesDia.find { it.first == diaRecorrencia }?.second ?: "Sem dia específico"
+                    Text(
+                        if (recorrencia == "SEMANAL") "Dia da semana" else "Dia do mês",
+                        fontSize = 12.sp, color = Gray500, fontWeight = FontWeight.Medium,
+                    )
+                    ExposedDropdownMenuBox(expanded = expandidoDia, onExpandedChange = { expandidoDia = it }) {
+                        OutlinedTextField(
+                            value = labelDia, onValueChange = {}, readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expandidoDia) },
+                            modifier = Modifier.fillMaxWidth().menuAnchor(),
+                            shape = RoundedCornerShape(10.dp), singleLine = true,
+                        )
+                        ExposedDropdownMenu(expanded = expandidoDia, onDismissRequest = { expandidoDia = false }) {
+                            DropdownMenuItem(text = { Text("Sem dia específico") }, onClick = { diaRecorrencia = null; expandidoDia = false })
+                            opcoesDia.forEach { (v, l) ->
+                                DropdownMenuItem(text = { Text(l) }, onClick = { diaRecorrencia = v; expandidoDia = false })
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    onConfirmar(titulo.trim(), descricao.trim().ifBlank { null }, prazo.ifBlank { null }, recorrencia)
+                    onConfirmar(titulo.trim(), descricao.trim().ifBlank { null }, prazo.ifBlank { null }, recorrencia, diaRecorrencia)
                 },
                 enabled = titulo.isNotBlank() && !isSaving,
                 colors = ButtonDefaults.buttonColors(containerColor = Blue600),
