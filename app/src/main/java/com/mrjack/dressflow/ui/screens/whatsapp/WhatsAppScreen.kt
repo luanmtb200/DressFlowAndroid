@@ -131,6 +131,7 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
     val usuarioVendedorId = MutableStateFlow<Int?>(null)
     val arquivadas        = MutableStateFlow<Set<String>>(emptySet())
     val mostrarArquivadas = MutableStateFlow(false)
+    val nomeLocalMap      = MutableStateFlow<Map<String, String>>(emptyMap())
 
     private var buscaJob: Job? = null
     private var buscaAtual = ""
@@ -148,6 +149,10 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
             try {
                 app.dataStore.data.collect { prefs ->
                     arquivadas.value = prefs[PrefsKeys.WA_ARQUIVADAS] ?: emptySet()
+                    nomeLocalMap.value = (prefs[PrefsKeys.WA_CONTATOS] ?: emptySet()).mapNotNull {
+                        val p = it.split("|", limit = 2)
+                        if (p.size == 2) p[0] to p[1] else null
+                    }.toMap()
                     aplicarFiltros()
                 }
             } catch (_: Exception) {}
@@ -323,13 +328,33 @@ class WhatsAppViewModel(app: Application) : AndroidViewModel(app) {
         aplicarFiltros()
     }
 
+    fun salvarNomeLocal(tel: String, nome: String) {
+        viewModelScope.launch {
+            try {
+                getApplication<Application>().dataStore.edit { prefs ->
+                    val atual = (prefs[PrefsKeys.WA_CONTATOS] ?: emptySet()).toMutableSet()
+                    atual.removeAll { it.startsWith("$tel|") }
+                    if (nome.isNotBlank()) atual.add("$tel|$nome")
+                    prefs[PrefsKeys.WA_CONTATOS] = atual
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     private fun aplicarFiltros() {
         val q = buscaAtual.trim()
         val lbl = labelFiltrado.value
         val lmap = labelsMap.value
         val arq = arquivadas.value
         val mostrarArq = mostrarArquivadas.value
-        var resultado = chats.value.filter { c -> (c.id in arq) == mostrarArq }
+        val nomes = nomeLocalMap.value
+        var resultado = chats.value
+            .map { c ->
+                val phone = c.telefoneExibir
+                val localName = if (phone.isNotBlank()) nomes[phone] else null
+                if (localName != null) c.copy(name = localName) else c
+            }
+            .filter { c -> (c.id in arq) == mostrarArq }
         if (lbl != null) resultado = resultado.filter { c -> lmap[c.id]?.any { it.id == lbl } == true }
         if (q.isNotEmpty()) resultado = resultado.filter {
             it.nomeExibir.contains(q, ignoreCase = true) || it.telefoneExibir.contains(q)
@@ -1268,19 +1293,45 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
                         }
                     }
                     if (chat.isGroup != true && chat.telefoneExibir.isNotBlank()) {
+                        var mostrarDialogNome by remember { mutableStateOf(false) }
                         IconButton(
-                            onClick = {
-                                val intent = android.content.Intent(android.provider.ContactsContract.Intents.Insert.ACTION).apply {
-                                    type = android.provider.ContactsContract.RawContacts.CONTENT_TYPE
-                                    putExtra(android.provider.ContactsContract.Intents.Insert.NAME, chat.nomeExibir)
-                                    putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, chat.telefoneExibir)
-                                    putExtra(android.provider.ContactsContract.Intents.Insert.PHONE_TYPE, android.provider.ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
-                                }
-                                ctx.startActivity(intent)
-                            },
+                            onClick = { mostrarDialogNome = true },
                             modifier = Modifier.size(36.dp),
                         ) {
                             Icon(Icons.Default.PersonAdd, contentDescription = "Salvar contato", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        if (mostrarDialogNome) {
+                            var nomeDigitado by remember {
+                                mutableStateOf(
+                                    if (chat.nomeExibir == chat.telefoneExibir || chat.nomeExibir.matches(Regex("\\+?\\d{8,15}"))) ""
+                                    else chat.nomeExibir
+                                )
+                            }
+                            AlertDialog(
+                                onDismissRequest = { mostrarDialogNome = false },
+                                title = { Text("Salvar contato", fontWeight = FontWeight.Bold) },
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(chat.telefoneExibir, fontSize = 13.sp, color = Color(0xFF6B7280))
+                                        OutlinedTextField(
+                                            value = nomeDigitado,
+                                            onValueChange = { nomeDigitado = it },
+                                            label = { Text("Nome") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true,
+                                        )
+                                    }
+                                },
+                                confirmButton = {
+                                    TextButton(onClick = {
+                                        vm.salvarNomeLocal(chat.telefoneExibir, nomeDigitado.trim())
+                                        mostrarDialogNome = false
+                                    }) { Text("Salvar") }
+                                },
+                                dismissButton = {
+                                    TextButton(onClick = { mostrarDialogNome = false }) { Text("Cancelar") }
+                                },
+                            )
                         }
                     }
                 }

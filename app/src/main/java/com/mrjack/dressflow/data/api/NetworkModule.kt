@@ -32,6 +32,7 @@ object PrefsKeys {
     val USER_JSON = stringPreferencesKey("user_json")
     val LOJA_SLUG = stringPreferencesKey("loja_slug")
     val WA_ARQUIVADAS = stringSetPreferencesKey("wa_arquivadas")
+    val WA_CONTATOS   = stringSetPreferencesKey("wa_contatos")
 
     // SharedPreferences keys (síncrono — usado no interceptor)
     const val SP_TOKEN     = "sp_token"
