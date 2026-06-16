@@ -1038,6 +1038,7 @@ private val QUICK_EMOJIS = listOf("👍","❤️","😂","😮","😢","🙏")
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
+    val ctx          = LocalContext.current
     val msgs         by vm.mensagens.collectAsState()
     val isLoading    by vm.isLoadingMsgs.collectAsState()
     val isSending    by vm.isSending.collectAsState()
@@ -1266,6 +1267,22 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
                             Text("Etiquetar", fontSize = 11.sp, color = Color.White, fontWeight = FontWeight.Medium)
                         }
                     }
+                    if (chat.isGroup != true && chat.telefoneExibir.isNotBlank()) {
+                        IconButton(
+                            onClick = {
+                                val intent = android.content.Intent(android.provider.ContactsContract.Intents.Insert.ACTION).apply {
+                                    type = android.provider.ContactsContract.RawContacts.CONTENT_TYPE
+                                    putExtra(android.provider.ContactsContract.Intents.Insert.NAME, chat.nomeExibir)
+                                    putExtra(android.provider.ContactsContract.Intents.Insert.PHONE, chat.telefoneExibir)
+                                    putExtra(android.provider.ContactsContract.Intents.Insert.PHONE_TYPE, android.provider.ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE)
+                                }
+                                ctx.startActivity(intent)
+                            },
+                            modifier = Modifier.size(36.dp),
+                        ) {
+                            Icon(Icons.Default.PersonAdd, contentDescription = "Salvar contato", tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                    }
                 }
                 // Labels do chat
                 if (chatLabels.isNotEmpty()) {
@@ -1427,7 +1444,6 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
         // Input
         if (editandoMsg == null) {
             // ── Gravação de áudio ─────────────────────────────────────────────
-            val ctx = LocalContext.current
             var gravando by remember { mutableStateOf(false) }
             var duracao  by remember { mutableStateOf(0) }
             var recorderRef = remember<MediaRecorder?> { null }
