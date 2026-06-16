@@ -381,13 +381,15 @@ class VendasViewModel(app: Application) : AndroidViewModel(app) {
         return m
     }
 
-    fun completarCadastro(clienteId: Int, cpf: String, cidade: String, bairro: String, onDone: () -> Unit) {
+    fun completarCadastro(clienteId: Int, cpf: String, cidade: String, bairro: String, cep: String, endereco: String, onDone: () -> Unit) {
         viewModelScope.launch {
             try {
                 val body = mutableMapOf<String, Any?>()
                 if (cpf.isNotBlank()) body["cpf"] = cpf
                 if (cidade.isNotBlank()) body["cidade"] = cidade
                 if (bairro.isNotBlank()) body["bairro"] = bairro
+                if (cep.isNotBlank()) body["cep"] = cep
+                if (endereco.isNotBlank()) body["endereco"] = endereco
                 if (body.isNotEmpty()) api.atualizarCliente(clienteId, body)
             } catch (_: Exception) { }
             onDone()
@@ -1102,9 +1104,11 @@ fun CompletarCadastroScreen(
     clienteNome: String,
     onFechar: () -> Unit,
 ) {
-    var cpf    by remember { mutableStateOf("") }
-    var cidade by remember { mutableStateOf("") }
-    var bairro by remember { mutableStateOf("") }
+    var cpf      by remember { mutableStateOf("") }
+    var cidade   by remember { mutableStateOf("") }
+    var bairro   by remember { mutableStateOf("") }
+    var cep      by remember { mutableStateOf("") }
+    var endereco by remember { mutableStateOf("") }
     val isSaving by vm.isSaving.collectAsState()
 
     Column(Modifier.fillMaxSize()) {
@@ -1139,6 +1143,21 @@ fun CompletarCadastroScreen(
                     value = bairro, onValueChange = { bairro = it },
                     label = { Text("Bairro") }, modifier = Modifier.weight(1f),
                     singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Next),
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(
+                    value = cep, onValueChange = { cep = it.filter { c -> c.isDigit() }.take(8) },
+                    label = { Text("CEP") }, modifier = Modifier.weight(1f),
+                    singleLine = true, shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    placeholder = { Text("00000-000") },
+                )
+                OutlinedTextField(
+                    value = endereco, onValueChange = { endereco = it },
+                    label = { Text("Endereço") }, modifier = Modifier.weight(2f),
+                    singleLine = true, shape = RoundedCornerShape(10.dp),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words, imeAction = ImeAction.Done),
                 )
             }
@@ -1146,7 +1165,7 @@ fun CompletarCadastroScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Button(
                     onClick = {
-                        vm.completarCadastro(clienteId, cpf, cidade, bairro) { onFechar() }
+                        vm.completarCadastro(clienteId, cpf, cidade, bairro, cep, endereco) { onFechar() }
                     },
                     enabled = !isSaving,
                     modifier = Modifier.weight(1f),

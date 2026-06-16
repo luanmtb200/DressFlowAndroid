@@ -37,6 +37,8 @@ data class Cliente(
     val dataNascimento: String?,
     val cidade: String?,
     val bairro: String?,
+    val cep: String?,
+    val endereco: String?,
     val observacoes: String?,
 )
 

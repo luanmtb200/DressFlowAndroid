@@ -161,6 +161,9 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
                     "email"       to form.email.ifBlank { null },
                     "tipoCliente" to form.tipoCliente.ifBlank { null },
                     "cidade"      to form.cidade.ifBlank { null },
+                    "bairro"      to form.bairro.ifBlank { null },
+                    "cep"         to form.cep.filter { it.isDigit() }.ifBlank { null },
+                    "endereco"    to form.endereco.ifBlank { null },
                     "observacoes" to form.observacoes.ifBlank { null },
                 )
                 val resp = api.atualizarCliente(c.id, body)
@@ -300,6 +303,9 @@ class ClientesViewModel(app: Application) : AndroidViewModel(app) {
                     "email"       to form.email.ifBlank { null },
                     "tipoCliente" to form.tipoCliente.ifBlank { null },
                     "cidade"      to form.cidade.ifBlank { null },
+                    "bairro"      to form.bairro.ifBlank { null },
+                    "cep"         to form.cep.filter { it.isDigit() }.ifBlank { null },
+                    "endereco"    to form.endereco.ifBlank { null },
                     "observacoes" to form.observacoes.ifBlank { null },
                 )
                 val resp = api.criarCliente(body)
@@ -321,6 +327,9 @@ data class ClienteForm(
     var email: String = "",
     var tipoCliente: String = "",
     var cidade: String = "",
+    var bairro: String = "",
+    var cep: String = "",
+    var endereco: String = "",
     var observacoes: String = "",
 )
 
@@ -1190,6 +1199,9 @@ fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
     var email       by remember { mutableStateOf(c.email ?: "") }
     var tipoCliente by remember { mutableStateOf(c.tipoCliente ?: "") }
     var cidade      by remember { mutableStateOf(c.cidade ?: "") }
+    var bairro      by remember { mutableStateOf(c.bairro ?: "") }
+    var cep         by remember { mutableStateOf(c.cep?.filter { it.isDigit() } ?: "") }
+    var endereco    by remember { mutableStateOf(c.endereco ?: "") }
     var observacoes by remember { mutableStateOf(c.observacoes ?: "") }
     var tipoExpanded by remember { mutableStateOf(false) }
 
@@ -1255,7 +1267,23 @@ fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
             }
 
             ClienteField("E-mail", email, { email = it }, keyType = KeyboardType.Email)
-            ClienteField("Cidade", cidade, { cidade = it }, caps = KeyboardCapitalization.Words)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f)) { ClienteField("Cidade", cidade, { cidade = it }, caps = KeyboardCapitalization.Words) }
+                Column(Modifier.weight(1f)) { ClienteField("Bairro", bairro, { bairro = it }, caps = KeyboardCapitalization.Words) }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("CEP", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
+                    OutlinedTextField(
+                        value = cep,
+                        onValueChange = { new -> cep = new.filter { it.isDigit() }.take(8) },
+                        placeholder = { Text("00000-000", color = Gray500) },
+                        modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(8.dp),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                    )
+                }
+                Column(Modifier.weight(2f)) { ClienteField("Endereço", endereco, { endereco = it }, caps = KeyboardCapitalization.Words) }
+            }
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text("Tipo de cliente", fontSize = 13.sp, fontWeight = FontWeight.Medium, color = Gray700)
@@ -1285,7 +1313,9 @@ fun ClienteEditarScreen(vm: ClientesViewModel, c: Cliente) {
                         vm.salvarEdicaoCliente(ClienteForm(
                             nome = nome, telefone = telefone, cpf = cpf,
                             email = email, tipoCliente = tipoCliente,
-                            cidade = cidade, observacoes = observacoes,
+                            cidade = cidade, bairro = bairro,
+                            cep = cep, endereco = endereco,
+                            observacoes = observacoes,
                         ))
                     },
                     enabled = !isSaving,
