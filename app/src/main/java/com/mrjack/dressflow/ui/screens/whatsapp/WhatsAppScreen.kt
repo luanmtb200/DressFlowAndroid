@@ -29,6 +29,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -1576,6 +1577,7 @@ fun ChatViewScreen(chat: WaChat, vm: WhatsAppViewModel) {
                             placeholder = { Text("Mensagem", color = Gray500) },
                             modifier = Modifier.weight(1f), shape = RoundedCornerShape(24.dp), maxLines = 5,
                             enabled = !isSending && statusWa == "WORKING",
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.None),
                             colors = OutlinedTextFieldDefaults.colors(
                                 unfocusedBorderColor = Color.Transparent, focusedBorderColor = Color.Transparent,
                                 unfocusedContainerColor = Color.White, focusedContainerColor = Color.White,
