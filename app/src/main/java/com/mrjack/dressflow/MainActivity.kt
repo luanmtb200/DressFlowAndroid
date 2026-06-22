@@ -65,64 +65,7 @@ class MainActivity : ComponentActivity() {
 fun DressFlowApp(authViewModel: AuthViewModel) {
     val authState by authViewModel.state.collectAsState()
     val context = androidx.compose.ui.platform.LocalContext.current
-    var updatePendente by remember { mutableStateOf<AppVersion?>(null) }
-    var baixando by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        val v = checkForUpdate(context)
-        if (v != null) updatePendente = v
-    }
-
-    // Diálogo de atualização in-app
-    updatePendente?.let { v ->
-        AlertDialog(
-            onDismissRequest = { if (!baixando) updatePendente = null },
-            title = { Text("Atualização disponível", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Versão ${v.version} disponível. (Atual: ${BuildConfig.VERSION_NAME})", fontSize = 14.sp)
-                    if (v.notes.isNotBlank()) Text(v.notes, fontSize = 13.sp, color = Gray500)
-                    if (baixando) {
-                        Spacer(Modifier.height(4.dp))
-                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = Blue600)
-                        Text("Baixando e instalando...", fontSize = 12.sp, color = Gray500)
-                    }
-                }
-            },
-            confirmButton = {
-                if (!baixando) {
-                    Button(
-                        onClick = {
-                            baixando = true
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = Blue600),
-                    ) { Text("Atualizar agora") }
-                }
-            },
-            dismissButton = {
-                if (!baixando) {
-                    TextButton(onClick = { updatePendente = null }) { Text("Mais tarde") }
-                }
-            },
-        )
-    }
-
-    // Inicia o download quando o usuário confirmar
-    LaunchedEffect(baixando) {
-        val u = updatePendente
-        if (baixando && u != null) {
-            val ok = downloadAndInstallSync(context, u.apkUrl)
-            if (!ok) {
-                // Fallback: abre o link do APK no navegador
-                try {
-                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u.apkUrl))
-                    context.startActivity(intent)
-                } catch (_: Exception) {}
-            }
-            baixando = false
-            updatePendente = null
-        }
-    }
+    // Dialog de atualização removido — não funcionava corretamente
 
     when (val s = authState) {
         is AuthState.Loading -> {
