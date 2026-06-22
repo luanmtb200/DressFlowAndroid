@@ -2,6 +2,7 @@ package com.mrjack.dressflow.ui.screens.meupanel
 
 import android.app.Application
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -371,11 +372,13 @@ private fun TarefaItem(
 ) {
     val checked = if (tarefa.recorrencia != null) tarefa.concluidaHoje else tarefa.concluida
     val status = statusPrazo(tarefa.prazo)
+    var expandido by remember { mutableStateOf(false) }
 
     Card(
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = Color.White),
         border = androidx.compose.foundation.BorderStroke(1.dp, Gray200),
+        modifier = Modifier.clickable { expandido = !expandido },
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
@@ -390,12 +393,12 @@ private fun TarefaItem(
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(
                     tarefa.titulo,
-                    fontSize = 13.sp,
+                    fontSize = if (expandido) 16.sp else 13.sp,
                     fontWeight = FontWeight.Medium,
                     color = if (checked) Gray500 else Gray900,
                 )
                 if (!tarefa.descricao.isNullOrBlank()) {
-                    Text(tarefa.descricao, fontSize = 11.sp, color = Gray500, maxLines = 2)
+                    Text(tarefa.descricao, fontSize = if (expandido) 14.sp else 11.sp, color = Gray500, maxLines = if (expandido) Int.MAX_VALUE else 2)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (tarefa.recorrencia != null) {

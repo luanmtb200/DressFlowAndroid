@@ -242,9 +242,10 @@ data class VendasDia(
 data class Vendedor(
     val id: Int,
     val nome: String,
-    val email: String?,
-    val nivel: String,
-    val ativo: Boolean,
+    val email: String? = null,
+    val nivel: String = "",
+    val ativo: Boolean = true,
+    val fotoUrl: String? = null,
 )
 
 // ── Mural ─────────────────────────────────────────────────────────────────────

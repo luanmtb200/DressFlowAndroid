@@ -289,7 +289,7 @@ private fun NovaSolicitacaoDialog(
 ) {
     val usuarios by vm.usuarios.collectAsState()
     val destinatarios = remember(usuarios) {
-        usuarios.filter { it.nivel in listOf("GERENCIA", "DIRETOR") && it.ativo }
+        usuarios.filter { it.nivel in listOf("ADMIN", "GERENCIA", "DIRETOR") }
     }
 
     var titulo by remember { mutableStateOf("") }
