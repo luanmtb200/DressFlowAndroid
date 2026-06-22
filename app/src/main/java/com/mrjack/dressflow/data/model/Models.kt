@@ -120,6 +120,7 @@ data class Tarefa(
     val titulo: String,
     val descricao: String? = null,
     val prazo: String? = null,
+    val horarioLimite: String? = null,
     val recorrencia: String? = null,
     val diaRecorrencia: Int? = null,
     val concluida: Boolean,
@@ -128,6 +129,32 @@ data class Tarefa(
     val criadoPorNome: String,
     val criadoPorId: Int,
     val usuarioId: Int,
+)
+
+// ── Solicitação ──────────────────────────────────────────────────────────────
+data class Solicitacao(
+    val id: Int,
+    val lojaId: Int,
+    val titulo: String,
+    val descricao: String? = null,
+    val solicitanteId: Int,
+    val solicitanteNome: String,
+    val destinatarioId: Int,
+    val destinatarioNome: String,
+    val prazo: String? = null,
+    val horarioLimite: String? = null,
+    val status: String,
+    val motivoRejeicao: String? = null,
+    val tarefaId: Int? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+)
+
+data class UsuarioSimples(
+    val id: Int,
+    val nome: String,
+    val nivel: String,
+    val ativo: Boolean = true,
 )
 
 // ── Padronização ──────────────────────────────────────────────────────────────

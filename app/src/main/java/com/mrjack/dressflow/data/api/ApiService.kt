@@ -108,6 +108,20 @@ interface ApiService {
     @DELETE("tarefas/{id}")
     suspend fun deletarTarefa(@Path("id") id: Int): Response<Unit>
 
+    // ── Solicitações ─────────────────────────────────────────────────────────
+    @GET("tarefas/solicitacoes")
+    suspend fun listarSolicitacoes(): Response<List<Solicitacao>>
+
+    @POST("tarefas/solicitacoes")
+    suspend fun criarSolicitacao(@Body body: Map<String, @JvmSuppressWildcards Any?>): Response<Solicitacao>
+
+    @GET("tarefas/solicitacoes/pendentes/count")
+    suspend fun contarSolicitacoesPendentes(): Response<Map<String, Int>>
+
+    // ── Usuários (para selecionar destinatário da solicitação) ──────────────
+    @GET("mural/usuarios")
+    suspend fun listarUsuariosParaSolicitacao(): Response<List<Vendedor>>
+
     // ── Padronizações ─────────────────────────────────────────────────────────
     @GET("padronizacoes")
     suspend fun listarPadronizacoes(

@@ -178,6 +178,7 @@ fun MeuPainelScreen(
     usuarioId: Int,
     vm: MeuPainelViewModel = viewModel(),
     tarefasVm: TarefasViewModel = viewModel(),
+    solicitacoesVm: SolicitacoesViewModel = viewModel(),
 ) {
     var aba by remember { mutableIntStateOf(0) }
     val mesAtual = remember { mesAtualStr() }
@@ -325,6 +326,15 @@ fun MeuPainelScreen(
                         }
                     }
                 }
+                Tab(selected = aba == 3, onClick = { aba = 3 }) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Solicitações", fontSize = 13.sp, fontWeight = if (aba == 3) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
             }
 
             when (aba) {
@@ -351,10 +361,50 @@ fun MeuPainelScreen(
                     onEditar = { editarLocacao = it },
                     vm = vm,
                 )
+                3 -> SolicitacoesTab(vm = solicitacoesVm)
                 else -> TarefasTab(usuarioId = usuarioId, vm = tarefasVm)
             }
         } else {
-            TarefasTab(usuarioId = usuarioId, vm = tarefasVm)
+            // Sem vendedorId: mostra tarefas e solicitações em tabs simples
+            var abaSemVendedor by remember { mutableIntStateOf(0) }
+            TabRow(
+                selectedTabIndex = abaSemVendedor,
+                containerColor = Color.White,
+                contentColor = Blue600,
+                divider = { HorizontalDivider(color = Gray200) },
+            ) {
+                Tab(selected = abaSemVendedor == 0, onClick = { abaSemVendedor = 0 }) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Tarefas", fontSize = 13.sp, fontWeight = if (abaSemVendedor == 0) FontWeight.SemiBold else FontWeight.Normal)
+                        if (tarefasPendentes > 0) {
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(50))
+                                    .background(Blue100)
+                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                            ) {
+                                Text("$tarefasPendentes", fontSize = 11.sp, color = Blue700, fontWeight = FontWeight.Medium)
+                            }
+                        }
+                    }
+                }
+                Tab(selected = abaSemVendedor == 1, onClick = { abaSemVendedor = 1 }) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Solicitações", fontSize = 13.sp, fontWeight = if (abaSemVendedor == 1) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
+            }
+            when (abaSemVendedor) {
+                0 -> TarefasTab(usuarioId = usuarioId, vm = tarefasVm)
+                1 -> SolicitacoesTab(vm = solicitacoesVm)
+            }
         }
     }
 
