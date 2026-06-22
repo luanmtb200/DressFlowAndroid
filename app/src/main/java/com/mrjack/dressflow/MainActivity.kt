@@ -80,7 +80,7 @@ fun DressFlowApp(authViewModel: AuthViewModel) {
             title = { Text("Atualização disponível", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Versão ${v.version} disponível.", fontSize = 14.sp)
+                    Text("Versão ${v.version} disponível. (Atual: ${BuildConfig.VERSION_NAME})", fontSize = 14.sp)
                     if (v.notes.isNotBlank()) Text(v.notes, fontSize = 13.sp, color = Gray500)
                     if (baixando) {
                         Spacer(Modifier.height(4.dp))
@@ -111,7 +111,14 @@ fun DressFlowApp(authViewModel: AuthViewModel) {
     LaunchedEffect(baixando) {
         val u = updatePendente
         if (baixando && u != null) {
-            downloadAndInstallSync(context, u.apkUrl)
+            val ok = downloadAndInstallSync(context, u.apkUrl)
+            if (!ok) {
+                // Fallback: abre o link do APK no navegador
+                try {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(u.apkUrl))
+                    context.startActivity(intent)
+                } catch (_: Exception) {}
+            }
             baixando = false
             updatePendente = null
         }
