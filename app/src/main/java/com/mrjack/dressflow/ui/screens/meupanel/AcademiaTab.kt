@@ -143,7 +143,7 @@ class AcademiaViewModel(app: Application) : AndroidViewModel(app) {
 @Composable
 fun AcademiaTab(vm: AcademiaViewModel = viewModel()) {
     var subAba by remember { mutableIntStateOf(0) }
-    val subTabs = listOf("Salas", "Flashcards", "Quizzes", "Historico")
+    val subTabs = listOf("Conteúdos", "Salas", "Flashcards", "Quizzes", "Histórico")
 
     Column(Modifier.fillMaxSize()) {
         ScrollableTabRow(
@@ -166,10 +166,11 @@ fun AcademiaTab(vm: AcademiaViewModel = viewModel()) {
         }
 
         when (subAba) {
-            0 -> SalasDeAulaContent(vm)
-            1 -> FlashcardsContent(vm)
-            2 -> QuizzesPendentesContent(vm)
-            3 -> MeuHistoricoContent(vm)
+            0 -> ConteudosContent(vm)
+            1 -> SalasDeAulaContent(vm)
+            2 -> FlashcardsContent(vm)
+            3 -> QuizzesPendentesContent(vm)
+            4 -> MeuHistoricoContent(vm)
         }
     }
 }
@@ -178,6 +179,92 @@ fun AcademiaTab(vm: AcademiaViewModel = viewModel()) {
 @Composable
 fun AcademiaScreen(vm: AcademiaViewModel = viewModel()) {
     AcademiaTab(vm)
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Tab 0 — Conteúdos (todos os materiais de estudo)
+// ══════════════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun ConteudosContent(vm: AcademiaViewModel) {
+    val conteudos by vm.conteudos.collectAsState()
+    val isLoading by vm.isLoading.collectAsState()
+    var expandido by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(Unit) { vm.carregarConteudos() }
+
+    if (isLoading && conteudos.isEmpty()) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = Blue600)
+        }
+        return
+    }
+
+    if (conteudos.isEmpty()) {
+        Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+            Text("Nenhum conteúdo disponível.", color = Gray500, fontSize = 14.sp)
+        }
+        return
+    }
+
+    LazyColumn(
+        contentPadding = PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        items(conteudos, key = { it.id }) { c ->
+            val isExpanded = expandido == c.id
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Gray200),
+                modifier = Modifier.clickable { expandido = if (isExpanded) null else c.id },
+            ) {
+                Column {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(c.titulo, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = Gray900)
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                                if (!c.categoria.isNullOrBlank()) {
+                                    Box(Modifier.clip(RoundedCornerShape(50)).background(Color(0xFFDBEAFE)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                                        Text(c.categoria, fontSize = 10.sp, color = Color(0xFF1D4ED8), fontWeight = FontWeight.Medium)
+                                    }
+                                }
+                                Box(Modifier.clip(RoundedCornerShape(50)).background(
+                                    when (c.tipo) { "DOCUMENTO" -> Color(0xFFFED7AA); "VIDEO" -> Color(0xFFE9D5FF); else -> Color(0xFFF3F4F6) }
+                                ).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                                    Text(c.tipo, fontSize = 10.sp, fontWeight = FontWeight.Medium, color =
+                                        when (c.tipo) { "DOCUMENTO" -> Color(0xFFEA580C); "VIDEO" -> Color(0xFF7C3AED); else -> Gray500 }
+                                    )
+                                }
+                            }
+                        }
+                        Icon(
+                            if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null, tint = Gray500,
+                        )
+                    }
+
+                    // Conteúdo expandido
+                    if (isExpanded) {
+                        HorizontalDivider(color = Gray200)
+                        Column(Modifier.padding(16.dp)) {
+                            Text(c.conteudo, fontSize = 13.sp, color = Gray700, lineHeight = 20.sp)
+                            if (!c.urlArquivo.isNullOrBlank()) {
+                                Spacer(Modifier.height(8.dp))
+                                Text("📎 Arquivo anexo disponível", fontSize = 12.sp, color = Blue600)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Text("Por ${c.criadoPorNome}", fontSize = 11.sp, color = Gray500)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
