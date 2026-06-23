@@ -254,11 +254,12 @@ fun MeuPainelScreen(
 
         if (vendedorId != null) {
             // Tabs
-            TabRow(
+            ScrollableTabRow(
                 selectedTabIndex = aba,
                 containerColor = Color.White,
                 contentColor = Blue600,
                 divider = { HorizontalDivider(color = Gray200) },
+                edgePadding = 0.dp,
             ) {
                 Tab(selected = aba == 0, onClick = { aba = 0 }) {
                     Row(
@@ -335,6 +336,15 @@ fun MeuPainelScreen(
                         Text("Solicitações", fontSize = 13.sp, fontWeight = if (aba == 3) FontWeight.SemiBold else FontWeight.Normal)
                     }
                 }
+                Tab(selected = aba == 4, onClick = { aba = 4 }) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("Academia", fontSize = 13.sp, fontWeight = if (aba == 4) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
             }
 
             when (aba) {
@@ -362,6 +372,7 @@ fun MeuPainelScreen(
                     vm = vm,
                 )
                 3 -> SolicitacoesTab(vm = solicitacoesVm)
+                4 -> AcademiaTab()
                 else -> TarefasTab(usuarioId = usuarioId, vm = tarefasVm)
             }
         } else {
@@ -400,10 +411,19 @@ fun MeuPainelScreen(
                         Text("Solicitações", fontSize = 13.sp, fontWeight = if (abaSemVendedor == 1) FontWeight.SemiBold else FontWeight.Normal)
                     }
                 }
+                Tab(selected = abaSemVendedor == 2, onClick = { abaSemVendedor = 2 }) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("Academia", fontSize = 13.sp, fontWeight = if (abaSemVendedor == 2) FontWeight.SemiBold else FontWeight.Normal)
+                    }
+                }
             }
             when (abaSemVendedor) {
                 0 -> TarefasTab(usuarioId = usuarioId, vm = tarefasVm)
                 1 -> SolicitacoesTab(vm = solicitacoesVm)
+                2 -> AcademiaTab()
             }
         }
     }

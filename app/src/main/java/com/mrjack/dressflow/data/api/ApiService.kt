@@ -347,4 +347,23 @@ interface ApiService {
 
     @DELETE("propostas/{id}")
     suspend fun deletarProposta(@Path("id") id: Int): Response<Unit>
+
+    // ── Academia Mr Jack ──────────────────────────────────────────────────────
+    @GET("academia/conteudos")
+    suspend fun listarConteudosAcademia(): Response<List<AcademiaConteudo>>
+
+    @GET("academia/salas")
+    suspend fun listarSalasAcademia(): Response<List<AcademiaSala>>
+
+    @GET("academia/flashcards/{conteudoId}")
+    suspend fun listarFlashcards(@Path("conteudoId") id: Int): Response<List<AcademiaFlashcard>>
+
+    @GET("academia/quizzes")
+    suspend fun listarQuizzesAcademia(): Response<List<AcademiaQuiz>>
+
+    @POST("academia/quizzes/{id}/responder")
+    suspend fun responderQuizAcademia(@Path("id") id: Int, @Body body: Map<String, @JvmSuppressWildcards Any>): Response<AcademiaResposta>
+
+    @GET("academia/meu-historico")
+    suspend fun meuHistoricoAcademia(): Response<List<AcademiaResposta>>
 }

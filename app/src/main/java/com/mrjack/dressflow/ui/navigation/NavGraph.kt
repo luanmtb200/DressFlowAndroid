@@ -22,6 +22,7 @@ sealed class Screen(val route: String, val label: String, val icon: ImageVector)
     object Padronizacoes   : Screen("padronizacoes",   "Padronizações",  Icons.Default.Groups)
     object Mural           : Screen("mural",           "Mural",          Icons.Default.Forum)
     object WhatsApp        : Screen("whatsapp",        "WhatsApp",       Icons.Default.Chat)
+    object Academia        : Screen("academia",        "Academia",       Icons.Default.School)
 }
 
 fun screensParaNivel(nivel: String): List<Screen> = when (nivel) {
@@ -32,7 +33,7 @@ fun screensParaNivel(nivel: String): List<Screen> = when (nivel) {
         Screen.Agenda,
         Screen.Padronizacoes,
         Screen.Mural,
-        Screen.WhatsApp,
+        Screen.Academia,
     )
     else -> listOf(
         Screen.MeuPainel,
@@ -41,6 +42,6 @@ fun screensParaNivel(nivel: String): List<Screen> = when (nivel) {
         Screen.Agenda,
         Screen.Padronizacoes,
         Screen.Mural,
-        Screen.WhatsApp,
+        Screen.Academia,
     )
 }

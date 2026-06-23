@@ -478,3 +478,23 @@ data class GoogleContactsStatus(
 data class GoogleAuthUrlResponse(
     val url: String = "",
 )
+
+// ── Academia Mr Jack ─────────────────────────────────────────────────────────
+data class AcademiaConteudo(
+    val id: Int, val titulo: String, val conteudo: String,
+    val categoria: String? = null, val tipo: String = "TEXTO",
+    val urlArquivo: String? = null, val criadoPorNome: String = "", val createdAt: String = ""
+)
+data class AcademiaSala(
+    val id: Int, val nome: String, val descricao: String? = null,
+    val conteudos: List<AcademiaConteudo>? = null
+)
+data class AcademiaFlashcard(val id: Int, val pergunta: String, val resposta: String)
+data class AcademiaQuizPergunta(val pergunta: String, val alternativas: List<String>, val correta: Int)
+data class AcademiaQuiz(
+    val id: Int, val titulo: String, val nivel: String, val prazo: String? = null,
+    val perguntas: List<AcademiaQuizPergunta> = emptyList(), val criadoPorNome: String = ""
+)
+data class AcademiaResposta(
+    val id: Int, val quizId: Int, val acertos: Int, val total: Int, val createdAt: String = ""
+)

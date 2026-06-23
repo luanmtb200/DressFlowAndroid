@@ -38,6 +38,7 @@ import com.mrjack.dressflow.ui.screens.mural.MuralViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mrjack.dressflow.ui.screens.padronizacoes.PadronizacoesScreen
 import com.mrjack.dressflow.ui.screens.vendas.VendasScreen
+import com.mrjack.dressflow.ui.screens.meupanel.AcademiaScreen
 import com.mrjack.dressflow.ui.screens.whatsapp.WhatsAppScreen
 import com.mrjack.dressflow.ui.theme.*
 import com.mrjack.dressflow.updater.AppVersion
@@ -186,6 +187,7 @@ fun MainApp(user: com.mrjack.dressflow.data.model.UsuarioLogado, onLogout: () ->
                 composable(Screen.Padronizacoes.route) { PadronizacoesScreen() }
                 composable(Screen.Mural.route)         { MuralScreen(vm = muralVm) }
                 composable(Screen.WhatsApp.route)      { WhatsAppScreen() }
+                composable(Screen.Academia.route)     { AcademiaScreen() }
             }
         }
     }
