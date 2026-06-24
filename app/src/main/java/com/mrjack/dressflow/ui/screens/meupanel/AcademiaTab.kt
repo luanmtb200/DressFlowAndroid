@@ -1,6 +1,8 @@
 package com.mrjack.dressflow.ui.screens.meupanel
 
 import android.app.Application
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -254,8 +256,16 @@ private fun ConteudosContent(vm: AcademiaViewModel) {
                         Column(Modifier.padding(16.dp)) {
                             Text(c.conteudo, fontSize = 13.sp, color = Gray700, lineHeight = 20.sp)
                             if (!c.urlArquivo.isNullOrBlank()) {
+                                val ctx = androidx.compose.ui.platform.LocalContext.current
                                 Spacer(Modifier.height(8.dp))
-                                Text("📎 Arquivo anexo disponível", fontSize = 12.sp, color = Blue600)
+                                Text(
+                                    "📎 Abrir arquivo anexo",
+                                    fontSize = 12.sp,
+                                    color = Blue600,
+                                    modifier = Modifier.clickable {
+                                        ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(c.urlArquivo)))
+                                    },
+                                )
                             }
                             Spacer(Modifier.height(8.dp))
                             Text("Por ${c.criadoPorNome}", fontSize = 11.sp, color = Gray500)

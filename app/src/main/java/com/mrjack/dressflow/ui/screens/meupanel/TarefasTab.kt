@@ -419,6 +419,11 @@ private fun TarefaItem(
                             )
                         }
                     }
+                    if (!tarefa.horarioLimite.isNullOrBlank()) {
+                        Box(modifier = Modifier.clip(RoundedCornerShape(50)).background(Gray100).padding(horizontal = 6.dp, vertical = 1.dp)) {
+                            Text("⏰ ${tarefa.horarioLimite}", fontSize = 10.sp, color = Gray500, fontWeight = FontWeight.Medium)
+                        }
+                    }
                     if (tarefa.criadoPorId != usuarioId) {
                         Text("de ${tarefa.criadoPorNome}", fontSize = 10.sp, color = Gray500)
                     }
