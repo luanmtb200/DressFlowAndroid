@@ -187,15 +187,24 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
 
     LaunchedEffect(usuarioId) { vm.carregar() }
 
-    val recorrentes = remember(tarefas) { tarefas.filter { it.recorrencia != null } }
+    val diarias = remember(tarefas) {
+        tarefas.filter { it.recorrencia == "DIARIA" }
+            .sortedBy { if (it.concluidaHoje) 1 else 0 }
+    }
+    val recorrentes = remember(tarefas) {
+        tarefas.filter { it.recorrencia != null && it.recorrencia != "DIARIA" }
+            .sortedBy { if (it.concluidaHoje) 1 else 0 }
+    }
     val naoRecorrentes = remember(tarefas) { tarefas.filter { it.recorrencia == null } }
     val concluidas = remember(naoRecorrentes) { naoRecorrentes.filter { it.concluida } }
     val pendentes = remember(naoRecorrentes) { naoRecorrentes.filter { !it.concluida } }
     val hojeAtrasadas = remember(pendentes) {
         pendentes.filter { statusPrazo(it.prazo) != PrazoStatus.FUTURA }
+            .sortedWith(compareBy { it.prazo ?: "9999" })
     }
     val proximas = remember(pendentes) {
         pendentes.filter { statusPrazo(it.prazo) == PrazoStatus.FUTURA }
+            .sortedWith(compareBy { it.prazo ?: "9999" })
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -228,6 +237,17 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
                 }
 
                 tarefaSecao(
+                    titulo = "Diárias",
+                    tarefas = diarias,
+                    expandido = expandidoRecorrentes,
+                    onToggle = { expandidoRecorrentes = !expandidoRecorrentes },
+                    usuarioId = usuarioId,
+                    isSaving = isSaving,
+                    onConcluir = { id, c -> vm.concluir(id, c) },
+                    onRemover = { vm.remover(it) },
+                    onEditar = { editando = it; showDialog = true },
+                )
+                tarefaSecao(
                     titulo = "Hoje / Atrasadas",
                     tarefas = hojeAtrasadas,
                     expandido = expandidoHoje,
@@ -238,17 +258,19 @@ fun TarefasTab(usuarioId: Int, vm: TarefasViewModel = viewModel()) {
                     onRemover = { vm.remover(it) },
                     onEditar = { editando = it; showDialog = true },
                 )
+                if (recorrentes.isNotEmpty()) {
                 tarefaSecao(
-                    titulo = "Recorrentes (diárias)",
+                    titulo = "Semanais / Mensais",
                     tarefas = recorrentes,
-                    expandido = expandidoRecorrentes,
-                    onToggle = { expandidoRecorrentes = !expandidoRecorrentes },
+                    expandido = expandidoProximas,
+                    onToggle = { expandidoProximas = !expandidoProximas },
                     usuarioId = usuarioId,
                     isSaving = isSaving,
                     onConcluir = { id, c -> vm.concluir(id, c) },
                     onRemover = { vm.remover(it) },
                     onEditar = { editando = it; showDialog = true },
                 )
+                }
                 tarefaSecao(
                     titulo = "Próximas",
                     tarefas = proximas,

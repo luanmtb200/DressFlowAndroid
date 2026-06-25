@@ -123,12 +123,12 @@ data class Tarefa(
     val horarioLimite: String? = null,
     val recorrencia: String? = null,
     val diaRecorrencia: Int? = null,
-    val concluida: Boolean,
-    val concluidaHoje: Boolean,
+    val concluida: Boolean = false,
+    val concluidaHoje: Boolean = false,
     val concluidaPorNome: String? = null,
-    val criadoPorNome: String,
-    val criadoPorId: Int,
-    val usuarioId: Int,
+    val criadoPorNome: String = "",
+    val criadoPorId: Int = 0,
+    val usuarioId: Int = 0,
 )
 
 // ── Solicitação ──────────────────────────────────────────────────────────────
